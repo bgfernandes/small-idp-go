@@ -1,0 +1,4 @@
+# Local toolchain for this repo, managed with mise (https://mise.jdx.dev).
+# Run `mise trust && mise install` after cloning.
+[tools]
+go = "1.27"

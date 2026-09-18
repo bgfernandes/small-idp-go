@@ -24,7 +24,7 @@ The value of this project depends on Bruno writing the code. Claude is a **tutor
 ## Engineering ground rules
 
 - **Standard library only for the core.** `net/http`, `crypto/*`, `encoding/json`, `encoding/base64`, `html/template`, `log/slog`, `database/sql`. No web framework, no router library, no JWT library. Hand-roll JWS (RFC 7515) signing and verification. Third-party code is allowed only for the SQLite driver (phase 3) and for the test clients in phase 4 (`github.com/coreos/go-oidc/v3`, `golang.org/x/oauth2`).
-- **Go version:** 1.24 (`go version go1.24.3 darwin/arm64` on Bruno's machine). Use the modern APIs: `http.ServeMux` method-and-path patterns (Go 1.22+), `log/slog`, `signal.NotifyContext`, `errors.Is`/`errors.As`, range-over-int.
+- **Go version:** 1.27 (`go version go1.27.1 darwin/arm64` on Bruno's machine, pinned in `mise.toml` and managed with mise). Use the modern APIs: `http.ServeMux` method-and-path patterns (Go 1.22+), `log/slog`, `signal.NotifyContext`, `errors.Is`/`errors.As`, range-over-int.
 - **Layout:** `cmd/server/main.go` for the binary, `internal/<package>` for everything else. Keep packages small and named for what they contain (`internal/jwk`, `internal/token`, `internal/authz`), not `utils` or `common`.
 - **Tests:** table-driven, using `net/http/httptest`. Every endpoint gets a test file before the phase is considered done. `go test ./...` and `go vet ./...` must pass before every commit.
 - **Formatting:** `gofmt` always. No exceptions, no debates.
