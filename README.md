@@ -17,3 +17,18 @@ mise trust     # allow mise to read this repo's mise.toml
 mise install   # installs the pinned Go toolchain
 go version     # should report go1.27.x
 ```
+
+Compile and run the HTTP server locally with:
+
+```sh
+go run ./cmd/server # The server listens on :8080
+```
+
+Before committing, make sure Go's static checks, formatting and tests pass with:
+
+```sh
+go vet ./...        # static checks
+go test ./...       # run all tests
+go test -race ./... # with the race detector
+gofmt -l .          # list unformatted files, empty output means clean
+```
