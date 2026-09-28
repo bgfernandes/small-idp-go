@@ -20,6 +20,7 @@ Ships a server that can mint verifiable access tokens for machine clients.
 - [ ] `go mod init github.com/bgfernandes/small-idp-go`, layout (`cmd/server`, `internal/...`), run instructions in README.
 - [ ] EC P-256 signing key generated at startup, with a `kid`. ES256 first because signing is the issuer's hot path, keys and signatures are a quarter the size of RSA-2048, key generation is instant (matters for rotation and for tests), and the JWS encoding has a real gotcha to learn: Go's `ecdsa.SignASN1` yields DER, but RFC 7518 §3.4 requires raw `R || S`, each left-padded to 32 bytes. RS256 is added in phase 3; see the note there.
 - [ ] `GET /.well-known/openid-configuration` (OIDC Discovery 1.0, RFC 8414): issuer, endpoints, supported grants, signing algs.
+  - [ ] Also serve `GET /.well-known/oauth-authorization-server` (RFC 8414 §3) from the same handler with the same body, so a plain OAuth resource server verifying RFC 9068 tokens can find `jwks_uri` without OIDC. Neither spec fixes the JWKS path; only the two metadata documents are well-known, and the JWKS lives wherever `jwks_uri` says.
 - [ ] `GET /jwks` returning the public key as a JWK Set (RFC 7517).
 - [ ] `POST /token` with `grant_type=client_credentials` (RFC 6749 §4.4), client authentication via HTTP Basic (`client_secret_basic`) and form body (`client_secret_post`), in-memory client registry.
 - [ ] JWT access token (RFC 7519, RFC 9068 profile): `iss`, `sub`, `aud`, `exp`, `iat`, `jti`, `scope`, `client_id`. Sign with ES256 (RFC 7518), hand-rolled JWS compact serialization (RFC 7515).
