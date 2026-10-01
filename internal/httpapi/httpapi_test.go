@@ -81,7 +81,6 @@ func TestJWKSRoute(t *testing.T) {
 
 	apiServer, key := newTestServer(t)
 
-	// Happy Path
 	t.Run("happy path", func(t *testing.T) {
 		t.Parallel()
 
@@ -111,7 +110,6 @@ func TestJWKSRoute(t *testing.T) {
 		}
 	})
 
-	// Wrong Method
 	t.Run("wrong method", func(t *testing.T) {
 		t.Parallel()
 
@@ -138,9 +136,9 @@ func TestWriteJSON(t *testing.T) {
 		wantContentType string
 		wantBody        string
 	}{
-		{name: "ok", code: http.StatusOK, body: "some string", wantCode: http.StatusOK, wantContentType: "application/json", wantBody: "\"some string\""},
-		{name: "created", code: http.StatusCreated, body: "some string", wantCode: http.StatusCreated, wantContentType: "application/json", wantBody: "\"some string\""},
-		{name: "internal server error", code: http.StatusInternalServerError, body: "some string", wantCode: http.StatusInternalServerError, wantContentType: "application/json", wantBody: "\"some string\""},
+		{name: "ok", code: http.StatusOK, body: "some string", wantCode: http.StatusOK, wantContentType: "application/json", wantBody: `"some string"`},
+		{name: "created", code: http.StatusCreated, body: "some string", wantCode: http.StatusCreated, wantContentType: "application/json", wantBody: `"some string"`},
+		{name: "internal server error", code: http.StatusInternalServerError, body: "some string", wantCode: http.StatusInternalServerError, wantContentType: "application/json", wantBody: `"some string"`},
 		{name: "marshal error", code: http.StatusOK, body: make(chan int), wantCode: http.StatusInternalServerError, wantContentType: "text/plain; charset=utf-8", wantBody: "Internal Server Error\n"},
 	}
 
