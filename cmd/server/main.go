@@ -10,6 +10,9 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/bgfernandes/small-idp-go/internal/httpapi"
+	"github.com/bgfernandes/small-idp-go/internal/jwk"
 )
 
 func main() {
@@ -20,14 +23,20 @@ func main() {
 }
 
 func run() error {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /hello", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("hello, world"))
-	})
+	key, err := jwk.Generate()
+	if err != nil {
+		return fmt.Errorf("generate key: %w", err)
+	}
+
+	// RFC 8414 §2 requires HTTPS, but we're using HTTP for now
+	apiServer, err := httpapi.NewServer("http://localhost:8080", key, slog.With("component", "HttpApi"))
+	if err != nil {
+		return fmt.Errorf("new server: %w", err)
+	}
 
 	srv := &http.Server{
 		Addr:              ":8080",
-		Handler:           mux,
+		Handler:           apiServer.Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

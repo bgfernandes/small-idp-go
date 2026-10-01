@@ -35,6 +35,11 @@ type PublicKey struct {
 	Y   string `json:"y"`
 }
 
+// Set is the JWK Set representation (RFC 7517 §5) of a set of public keys.
+type Set struct {
+	Keys []PublicKey `json:"keys"`
+}
+
 // KID returns the key identifier of the key pair.
 func (k *Key) KID() string {
 	return k.public.KID
