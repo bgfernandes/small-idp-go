@@ -10,11 +10,11 @@ A small OAuth 2.0 / OIDC authorization server in Go, built from the RFCs as a le
 
 **Go 1.27** is required. The project is built against the current stable release and uses modern standard-library APIs, so older toolchains are not supported.
 
-The suggested way to manage the Go version is [mise](https://mise.jdx.dev). The repo ships a `mise.toml` that pins Go 1.27, so after cloning:
+The suggested way to manage the Go version is [mise](https://mise.jdx.dev). The repo ships a `mise.toml` that pins Go 1.27 and the [golangci-lint](https://golangci-lint.run) version, so after cloning:
 
 ```sh
 mise trust     # allow mise to read this repo's mise.toml
-mise install   # installs the pinned Go toolchain
+mise install   # installs the pinned Go toolchain and golangci-lint
 go version     # should report go1.27.x
 ```
 
@@ -24,10 +24,11 @@ Compile and run the HTTP server locally with:
 go run ./cmd/server # The server listens on :8080 by default
 ```
 
-Before committing, make sure Go's static checks, formatting and tests pass with:
+Before committing, make sure Go's static checks, linting, formatting and tests pass with:
 
 ```sh
 go vet ./...        # static checks
+golangci-lint run   # linters, configured in .golangci.yml
 go test ./...       # run all tests
 go test -race ./... # with the race detector
 gofmt -l .          # list unformatted files, empty output means clean

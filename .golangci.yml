@@ -1,0 +1,12 @@
+# golangci-lint configuration (https://golangci-lint.run), v2 format.
+# The default linter set is used: errcheck, govet, ineffassign, staticcheck, unused.
+version: "2"
+
+linters:
+  settings:
+    staticcheck:
+      # Enable every staticcheck check, including the style checks that
+      # golangci-lint leaves out by default (ST1000, ST1003, ST1016, ST1020-ST1022).
+      # This matches gopls with "ui.diagnostic.staticcheck": true, so the editor
+      # and the command line report the same findings.
+      checks: ["all"]

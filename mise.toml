@@ -2,3 +2,4 @@
 # Run `mise trust && mise install` after cloning.
 [tools]
 go = "1.27"
+golangci-lint = "2.14"

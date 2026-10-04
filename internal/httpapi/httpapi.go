@@ -1,3 +1,4 @@
+// Package httpapi implements the HTTP API for the small IDP.
 package httpapi
 
 import (

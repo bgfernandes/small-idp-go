@@ -1,3 +1,4 @@
+// Package jwk implements the JWK (JSON Web Key) format for the small IDP.
 package jwk
 
 import (
