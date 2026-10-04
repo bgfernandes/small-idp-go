@@ -23,19 +23,20 @@ func main() {
 }
 
 func run() error {
+	cfg := loadConfig(os.Getenv)
+
 	key, err := jwk.Generate()
 	if err != nil {
 		return fmt.Errorf("generate key: %w", err)
 	}
 
-	// RFC 8414 §2 requires HTTPS, but we're using HTTP for now
-	apiServer, err := httpapi.NewServer("http://localhost:8080", key, slog.With("component", "HttpApi"))
+	apiServer, err := httpapi.NewServer(cfg.issuer, key, slog.With("component", "HttpApi"))
 	if err != nil {
 		return fmt.Errorf("new server: %w", err)
 	}
 
 	srv := &http.Server{
-		Addr:              ":8080",
+		Addr:              cfg.addr,
 		Handler:           apiServer.Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
@@ -49,7 +50,7 @@ func run() error {
 	// Buffered channel to receive any errors from ListenAndServe
 	listenAndServeErr := make(chan error, 1)
 
-	slog.Info("server is starting", slog.String("addr", srv.Addr))
+	slog.Info("server is starting", slog.String("addr", cfg.addr), slog.String("issuer", cfg.issuer))
 
 	go func() {
 		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
