@@ -15,9 +15,11 @@ import (
 
 // Server is the HTTP server for the small IDP.
 type Server struct {
-	issuer string
-	key    *jwk.Key
-	log    *slog.Logger
+	issuer        string
+	jwksURI       string
+	key           *jwk.Key
+	log           *slog.Logger
+	tokenEndpoint string
 }
 
 // NewServer creates a new HTTP server for the small IDP.
@@ -50,10 +52,22 @@ func NewServer(issuer string, key *jwk.Key, log *slog.Logger) (*Server, error) {
 		return nil, errors.New("log is required")
 	}
 
+	tokenEndpoint, err := url.JoinPath(issuer, "token")
+	if err != nil {
+		return nil, fmt.Errorf("invalid token endpoint: %w", err)
+	}
+
+	jwksURI, err := url.JoinPath(issuer, "jwks")
+	if err != nil {
+		return nil, fmt.Errorf("invalid JWKS URI: %w", err)
+	}
+
 	return &Server{
-		issuer: issuer,
-		key:    key,
-		log:    log,
+		issuer:        issuer,
+		key:           key,
+		log:           log,
+		tokenEndpoint: tokenEndpoint,
+		jwksURI:       jwksURI,
 	}, nil
 }
 
@@ -61,6 +75,7 @@ func NewServer(issuer string, key *jwk.Key, log *slog.Logger) (*Server, error) {
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /jwks", s.handleJWKS)
+	mux.HandleFunc("GET /.well-known/oauth-authorization-server", s.handleOAuthAuthorizationServer)
 	return mux
 }
 

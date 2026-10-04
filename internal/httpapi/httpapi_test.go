@@ -59,7 +59,11 @@ func TestNewServer(t *testing.T) {
 func newTestServer(t *testing.T) (*Server, *jwk.Key) {
 	t.Helper()
 
-	issuer := "http://localhost:8080"
+	return newTestServerWithIssuer(t, "http://localhost:8080")
+}
+
+func newTestServerWithIssuer(t *testing.T, issuer string) (*Server, *jwk.Key) {
+	t.Helper()
 
 	key, err := jwk.Generate()
 	if err != nil {

@@ -55,3 +55,16 @@ The issuer is validated at startup and the server exits with an error if it is i
 - include a host.
 - have no query string or fragment (RFC 8414 §2).
 - have no trailing slash. A path is allowed, e.g. `https://example.com/idp`.
+
+### Issuer with a path
+
+When the issuer has a path, e.g. `https://example.com/idp`, the server expects to run behind a reverse proxy that strips that path prefix before forwarding. The server's own routes always sit at the root (`/jwks`, `/.well-known/oauth-authorization-server`, ...); the path only changes the URLs it advertises. Those are built from the configured issuer, never from the request's `Host` or `X-Forwarded-*` headers.
+
+Two proxy rules cover it:
+
+| Public URL                                                       | Forwarded to the server as                | Why                                                                                               |
+| ---------------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `https://example.com/idp/*`                                      | `/*`                                      | The prefix rule. Covers every endpoint and the metadata URL formed by appending to the issuer.    |
+| `https://example.com/.well-known/oauth-authorization-server/idp` | `/.well-known/oauth-authorization-server` | The metadata URL as RFC 8414 §3.1 defines it: the well-known segment is inserted before the path. |
+
+The second rule is needed because the RFC 8414 §3.1 location sits at the host root, outside the `/idp` prefix, so the first rule never matches it. Without it, clients that follow the RFC strictly get a 404; clients that append `/.well-known/oauth-authorization-server` to the issuer work with the first rule alone. Appending is vendor behaviour, not what RFC 8414 defines: §5 allows it only as a transition measure for the `openid-configuration` suffix. Observed on 2026-10-04, Okta serves both the appended and the inserted location, and two Keycloak-based deployments (Red Hat SSO, CERN) serve only the appended one.
