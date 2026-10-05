@@ -41,6 +41,11 @@ type Set struct {
 	Keys []PublicKey `json:"keys"`
 }
 
+// Alg returns the algorithm of the key pair.
+func (k *Key) Alg() string {
+	return k.public.Alg
+}
+
 // KID returns the key identifier of the key pair.
 func (k *Key) KID() string {
 	return k.public.KID
@@ -49,6 +54,19 @@ func (k *Key) KID() string {
 // Public returns the JWK representation of the public key of the key pair.
 func (k *Key) Public() PublicKey {
 	return k.public
+}
+
+// Sign hashes the given data and signs it with the private key of the key pair.
+func (k *Key) Sign(data []byte) ([]byte, error) {
+	digest := sha256.Sum256(data)
+
+	r, s, err := ecdsa.Sign(rand.Reader, k.privateKey, digest[:])
+	if err != nil {
+		return nil, fmt.Errorf("sign: %w", err)
+	}
+
+	// the signature is the concatenation of the R and S values, each 32 bytes long, as per RFC 7518 §3.4
+	return append(r.FillBytes(make([]byte, 32)), s.FillBytes(make([]byte, 32))...), nil
 }
 
 // Generate generates a new JWK for the ES256 algorithm only, for now.
