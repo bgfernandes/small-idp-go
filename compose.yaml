@@ -1,0 +1,22 @@
+# Local infrastructure for development. Not for production use.
+# Start with `docker compose up -d`; see README.md for the connection details.
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: smallidp
+      POSTGRES_PASSWORD: smallidp
+      POSTGRES_DB: smallidp
+    ports:
+      - "5432:5432"
+    volumes:
+      # The postgres:18 image keeps its data under /var/lib/postgresql, not /var/lib/postgresql/data.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smallidp -d smallidp"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres-data:

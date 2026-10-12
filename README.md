@@ -34,6 +34,31 @@ go test -race ./... # with the race detector
 gofmt -l .          # list unformatted files, empty output means clean
 ```
 
+## Local infrastructure
+
+The client registry lives in PostgreSQL. `compose.yaml` runs one for local development; it needs [Docker](https://docs.docker.com/get-docker/) with the Compose plugin.
+
+```sh
+docker compose up -d --wait # start PostgreSQL in the background and wait until it is healthy
+docker compose ps           # check it is running
+docker compose down         # stop it, keeping the data
+docker compose down -v      # stop it and delete the data volume
+```
+
+The database is reachable at:
+
+```
+postgres://smallidp:smallidp@localhost:5432/smallidp?sslmode=disable
+```
+
+To open a SQL shell inside the container:
+
+```sh
+docker compose exec postgres psql -U smallidp -d smallidp
+```
+
+The credentials are development defaults and are safe to commit because they only ever apply to this local container.
+
 ## Configuration
 
 The server reads its configuration from environment variables at startup. Every variable has a default, so `go run ./cmd/server` works with no setup. An unset or empty variable falls back to its default.
