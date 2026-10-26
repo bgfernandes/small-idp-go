@@ -18,6 +18,10 @@ mise install   # installs the pinned Go toolchain and golangci-lint
 go version     # should report go1.27.x
 ```
 
+### Editor setup
+
+Integration tests sit behind the `integration` build tag (see [Tests](#tests)). Without that tag the Go tooling treats those files as excluded from the package, so the editor shows no diagnostics or completion in them. `.vscode/settings.json` sets `go.buildTags` to `integration` for Cursor and VS Code with the Go extension; `.golangci.yml` does the same for the linter. For other editors, pass `-tags=integration` to gopls through its `build.buildFlags` setting.
+
 Compile and run the HTTP server locally with:
 
 ```sh
@@ -27,11 +31,13 @@ go run ./cmd/server # The server listens on :8080 by default
 Before committing, make sure Go's static checks, linting, formatting and tests pass with:
 
 ```sh
-go vet ./...        # static checks
-golangci-lint run   # linters, configured in .golangci.yml
-go test ./...       # run all tests
-go test -race ./... # with the race detector
-gofmt -l .          # list unformatted files, empty output means clean
+go vet ./...                                     # static checks
+go vet -tags=integration ./...                   # including the integration test files
+golangci-lint run                                # linters, configured in .golangci.yml
+go test ./...                                    # unit tests
+go test -race ./...                              # with the race detector
+go test -race -count=1 -tags=integration ./...   # unit and integration tests, needs the database (see Tests)
+gofmt -l .                                       # list unformatted files, empty output means clean
 ```
 
 ## Local infrastructure
@@ -59,16 +65,36 @@ docker compose exec postgres psql -U smallidp -d smallidp
 
 The credentials are development defaults and are safe to commit because they only ever apply to this local container.
 
+## Tests
+
+There are two kinds of tests:
+
+- **Unit tests** need nothing but Go. `go test ./...` runs them.
+- **Integration tests** need the PostgreSQL instance from [Local infrastructure](#local-infrastructure). Their files start with `//go:build integration`, so `go test ./...` does not compile them; they run only with `-tags=integration`.
+
+Run the integration tests with the database up:
+
+```sh
+go test -race -count=1 -tags=integration ./...
+```
+
+Details worth knowing:
+
+- The tests connect to the `compose.yaml` database by default, so no configuration is needed locally. `SMALLIDP_TEST_DATABASE_URL` overrides that URL, for example in CI where the database runs on another host. The tests never skip: without a reachable database they fail.
+- Each test creates its own database named `smallidp_test_<package>_<random>` and drops it when done, so the development data in `smallidp` is never touched. Databases left behind by a crashed run are dropped the next time the package's tests start.
+- `-count=1` disables Go's test result cache. The cache keys on inputs Go can see, which does not include database state, so a cached pass could hide a failure.
+
 ## Configuration
 
-The server reads its configuration from environment variables at startup. Every variable has a default, so `go run ./cmd/server` works with no setup. An unset or empty variable falls back to its default.
+The server reads its configuration from environment variables at startup. Every variable has a default that matches `compose.yaml`, so once the database is running `go run ./cmd/server` works with no further setup. An unset or empty variable falls back to its default.
 
-| Variable          | Default                 | Description                                                                 |
-| ----------------- | ----------------------- | --------------------------------------------------------------------------- |
-| `SMALLIDP_ISSUER` | `http://localhost:8080` | The issuer identifier: the public URL clients use to reach the server.      |
-| `SMALLIDP_ADDR`   | `:8080`                 | The address the HTTP server listens on, in `host:port` form (e.g. `:9000`). |
+| Variable                | Default                                                   | Description                                                                 |
+| ----------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `SMALLIDP_ISSUER`       | `http://localhost:8080`                                   | The issuer identifier: the public URL clients use to reach the server.      |
+| `SMALLIDP_ADDR`         | `:8080`                                                   | The address the HTTP server listens on, in `host:port` form (e.g. `:9000`). |
+| `SMALLIDP_DATABASE_URL` | `postgresql://smallidp:smallidp@localhost:5432/smallidp` | The PostgreSQL connection URL. Pending migrations are applied at startup.   |
 
-The two are independent. The issuer is what the server says about itself in tokens and metadata; the address is where it binds. Behind a reverse proxy they differ:
+The issuer and the address are independent. The issuer is what the server says about itself in tokens and metadata; the address is where it binds. Behind a reverse proxy they differ:
 
 ```sh
 SMALLIDP_ISSUER=https://idp.example.com SMALLIDP_ADDR=127.0.0.1:9000 go run ./cmd/server

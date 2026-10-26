@@ -2,6 +2,11 @@
 # The default linter set is used: errcheck, govet, ineffassign, staticcheck, unused.
 version: "2"
 
+run:
+  # Integration test files are behind this build tag; without it the linter would not see them.
+  build-tags:
+    - integration
+
 linters:
   settings:
     staticcheck:
