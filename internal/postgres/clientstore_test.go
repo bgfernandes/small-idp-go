@@ -81,7 +81,7 @@ func TestClientStoreCreateAndGetClient(t *testing.T) {
 
 	// check that the hash is the sha256 of the secret
 	query := `
-		SELECT client_secret_hash
+		SELECT secret_hash
 		FROM clients
 		WHERE id = $1
 	`

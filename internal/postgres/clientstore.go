@@ -128,7 +128,7 @@ func (s *ClientStore) Create(ctx context.Context, params client.CreateParams) (c
 	secretHash := hex.EncodeToString(secretHashBytes[:])
 
 	query := `
-		INSERT INTO clients (id, name, grant_types, scopes, audiences, client_secret_hash)
+		INSERT INTO clients (id, name, grant_types, scopes, audiences, secret_hash)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING name, grant_types, scopes, audiences, created_at, updated_at
 	`
