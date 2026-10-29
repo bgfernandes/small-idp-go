@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"errors"
@@ -21,24 +22,49 @@ type ClientStore struct {
 	db *sql.DB
 }
 
+// compile-time check that ClientStore implements the client.Store interface
+var _ client.Store = (*ClientStore)(nil)
+
 // NewClientStore creates a new ClientStore.
 func NewClientStore(db *sql.DB) *ClientStore {
 	return &ClientStore{db: db}
 }
 
+const clientColumns = "id, name, grant_types, scopes, audiences, created_at, updated_at, secret_hash"
+
+// scanClient scans a client from a database row. It returns the client and the secret hash.
+func scanClient(row *sql.Row) (client.Client, string, error) {
+	c := client.Client{}
+	var secretHash string
+	err := row.Scan(
+		&c.ID,
+		&c.Name,
+		&c.GrantTypes,
+		&c.Scopes,
+		&c.Audiences,
+		&c.CreatedAt,
+		&c.UpdatedAt,
+		&secretHash,
+	)
+	if err != nil {
+		return client.Client{}, "", fmt.Errorf("scan client: %w", err)
+	}
+	return c, secretHash, nil
+}
+
 // Get gets a client by its ID.
-func (s *ClientStore) Get(ctx context.Context, clientID string) (c client.Client, err error) {
+func (s *ClientStore) Get(ctx context.Context, clientID string) (client.Client, error) {
 	query := `
-		SELECT id, name, grant_types, scopes, audiences, created_at, updated_at
+		SELECT ` + clientColumns + `
 		FROM clients
 		WHERE id = $1
 	`
-	err = s.db.QueryRowContext(ctx, query, clientID).Scan(&c.ID, &c.Name, &c.GrantTypes, &c.Scopes, &c.Audiences, &c.CreatedAt, &c.UpdatedAt)
+	c, _, err := scanClient(s.db.QueryRowContext(ctx, query, clientID))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return client.Client{}, client.ErrNotFound
 		}
-		return client.Client{}, fmt.Errorf("scan client: %w", err)
+		return client.Client{}, fmt.Errorf("get client: %w", err)
 	}
 
 	return c, nil
@@ -49,6 +75,13 @@ func hasDuplicates[T cmp.Ordered](s []T) bool {
 	slices.Sort(cloned)
 	cloned = slices.Compact(cloned)
 	return len(s) != len(cloned)
+}
+
+func hashSecret(secret string) string {
+	// No salt needed because the secret is high entropy, and there is next to no chance of a collision
+	secretHashBytes := sha256.Sum256([]byte(secret))
+	secretHash := hex.EncodeToString(secretHashBytes[:])
+	return secretHash
 }
 
 // Create creates and stores a new client.
@@ -119,36 +152,24 @@ func (s *ClientStore) Create(ctx context.Context, params client.CreateParams) (c
 		return client.Client{}, "", &client.InvalidClientError{Field: "Audiences", Reason: "audiences cannot have duplicates"}
 	}
 
-	c := client.Client{
-		ID: rand.Text(),
-	}
+	clientID := rand.Text()
 	secret := rand.Text()
 
-	// No salt needed because the secret is high entropy, and there is next to no chance of a collision
-	secretHashBytes := sha256.Sum256([]byte(secret))
-	secretHash := hex.EncodeToString(secretHashBytes[:])
+	secretHash := hashSecret(secret)
 
 	query := `
 		INSERT INTO clients (id, name, grant_types, scopes, audiences, secret_hash)
 		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING name, grant_types, scopes, audiences, created_at, updated_at
-	`
+		RETURNING ` + clientColumns
 
-	err := s.db.QueryRowContext(ctx, query,
-		c.ID,
+	c, _, err := scanClient(s.db.QueryRowContext(ctx, query,
+		clientID,
 		params.Name,
 		params.GrantTypes,
 		params.Scopes,
 		params.Audiences,
 		secretHash,
-	).Scan(
-		&c.Name,
-		&c.GrantTypes,
-		&c.Scopes,
-		&c.Audiences,
-		&c.CreatedAt,
-		&c.UpdatedAt,
-	)
+	))
 	if err != nil {
 		if pgError, ok := errors.AsType[*pgconn.PgError](err); ok {
 			// 23505 is the SQLState code for unique_violation
@@ -159,4 +180,34 @@ func (s *ClientStore) Create(ctx context.Context, params client.CreateParams) (c
 		return client.Client{}, "", fmt.Errorf("insert client: %w", err)
 	}
 	return c, secret, nil
+}
+
+var fixedSecretHash = make([]byte, 64)
+
+// Authenticate authenticates a client if both ID and secret match.
+func (s *ClientStore) Authenticate(ctx context.Context, clientID, secret string) (client.Client, error) {
+	calculatedSecretHash := hashSecret(secret)
+	query := `
+		SELECT ` + clientColumns + `
+		FROM clients
+		WHERE id = $1
+	`
+	c, secretHash, err := scanClient(s.db.QueryRowContext(ctx, query, clientID))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// If no client is found, compare against a fixed 64 character string and discard the result to keep similar time
+			// to mitigate against timing attacks. In this case, a missed DB lookup against an index column would return faster than a hit,
+			// so this mitigation won't help much in that case, it would matter much more if the comparison was a much slower operation,
+			// like a bcrypt comparison.
+			subtle.ConstantTimeCompare([]byte(calculatedSecretHash), fixedSecretHash)
+
+			return client.Client{}, client.ErrUnknownClientOrWrongSecret
+		}
+		return client.Client{}, fmt.Errorf("authenticate client: %w", err)
+	}
+
+	if subtle.ConstantTimeCompare([]byte(calculatedSecretHash), []byte(secretHash)) == 1 {
+		return c, nil
+	}
+	return client.Client{}, client.ErrUnknownClientOrWrongSecret
 }

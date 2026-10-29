@@ -431,3 +431,103 @@ func TestClientStoreCreateClientWithDuplicateName(t *testing.T) {
 		t.Fatalf("got invalid error %+v, want %+v", invalid, wantInvalidError)
 	}
 }
+
+func TestClientStoreAuthenticate(t *testing.T) {
+	t.Parallel()
+
+	db := pgtest.CreateTestDatabaseAndRunMigrations(t, testDatabasePrefix)
+
+	store := postgres.NewClientStore(db)
+
+	c, secret, err := store.Create(t.Context(), client.CreateParams{
+		Audiences:  []string{"https://example.com"},
+		GrantTypes: []client.GrantType{client.GrantTypeClientCredentials},
+		Name:       "test-client",
+		Scopes:     []string{"openid"},
+	})
+	if err != nil {
+		t.Fatalf("got error %v, want nil", err)
+	}
+
+	authenticatedClient, err := store.Authenticate(t.Context(), c.ID, secret)
+	if err != nil {
+		t.Fatalf("got error %v, want nil", err)
+	}
+	if !reflect.DeepEqual(authenticatedClient, c) {
+		t.Fatalf("got authenticated client %+v, want %+v", authenticatedClient, c)
+	}
+
+	gotClient, err := store.Get(t.Context(), c.ID)
+	if err != nil {
+		t.Fatalf("got error %v, want nil", err)
+	}
+	if !reflect.DeepEqual(gotClient, authenticatedClient) {
+		t.Fatalf("got client from get %+v, want %+v", gotClient, authenticatedClient)
+	}
+}
+
+func TestClientStoreAuthenticateUnknownClientOrWrongSecret(t *testing.T) {
+	t.Parallel()
+
+	db := pgtest.CreateTestDatabaseAndRunMigrations(t, testDatabasePrefix)
+
+	store := postgres.NewClientStore(db)
+
+	clientA, _, err := store.Create(t.Context(), client.CreateParams{
+		Audiences:  []string{"https://example.com"},
+		GrantTypes: []client.GrantType{client.GrantTypeClientCredentials},
+		Name:       "test-client-a",
+		Scopes:     []string{"openid"},
+	})
+	if err != nil {
+		t.Fatalf("got error %v, want nil", err)
+	}
+
+	_, secretB, err := store.Create(t.Context(), client.CreateParams{
+		Audiences:  []string{"https://example.com"},
+		GrantTypes: []client.GrantType{client.GrantTypeClientCredentials},
+		Name:       "test-client-b",
+		Scopes:     []string{"openid"},
+	})
+	if err != nil {
+		t.Fatalf("got error %v, want nil", err)
+	}
+
+	tests := []struct {
+		name     string
+		clientID string
+		secret   string
+	}{
+		{
+			name:     "unknown client",
+			clientID: "unknown-client-id",
+			secret:   "secret",
+		},
+		{
+			name:     "wrong secret",
+			clientID: clientA.ID,
+			secret:   "wrong-secret",
+		},
+		{
+			name:     "empty secret",
+			clientID: clientA.ID,
+			secret:   "",
+		},
+		{
+			name:     "another client's secret",
+			clientID: clientA.ID,
+			secret:   secretB,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := store.Authenticate(t.Context(), tt.clientID, tt.secret)
+			if !errors.Is(err, client.ErrUnknownClientOrWrongSecret) {
+				t.Fatalf("got error %v, want %v", err, client.ErrUnknownClientOrWrongSecret)
+			}
+		})
+	}
+}
