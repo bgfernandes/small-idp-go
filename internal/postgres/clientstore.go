@@ -13,6 +13,7 @@ import (
 	"slices"
 
 	"github.com/bgfernandes/small-idp-go/internal/client"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // ClientStore is a store for clients.
@@ -149,6 +150,12 @@ func (s *ClientStore) Create(ctx context.Context, params client.CreateParams) (c
 		&c.UpdatedAt,
 	)
 	if err != nil {
+		if pgError, ok := errors.AsType[*pgconn.PgError](err); ok {
+			// 23505 is the SQLState code for unique_violation
+			if pgError.Code == "23505" && pgError.ConstraintName == "clients_name_key" {
+				return client.Client{}, "", &client.InvalidClientError{Field: "Name", Reason: "name must be unique"}
+			}
+		}
 		return client.Client{}, "", fmt.Errorf("insert client: %w", err)
 	}
 	return c, secret, nil

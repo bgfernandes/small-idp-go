@@ -389,3 +389,45 @@ func TestClientStoreTwoCreatesDifferentClients(t *testing.T) {
 		t.Fatalf("got secrets equal, want different")
 	}
 }
+
+func TestClientStoreCreateClientWithDuplicateName(t *testing.T) {
+	t.Parallel()
+
+	db := pgtest.CreateTestDatabaseAndRunMigrations(t, testDatabasePrefix)
+
+	store := postgres.NewClientStore(db)
+
+	params := client.CreateParams{
+		Audiences:  []string{"https://example.com"},
+		GrantTypes: []client.GrantType{client.GrantTypeClientCredentials},
+		Name:       "test-client",
+		Scopes:     []string{"openid"},
+	}
+
+	_, _, err := store.Create(t.Context(), params)
+	if err != nil {
+		t.Fatalf("got error %v, want nil", err)
+	}
+
+	wantInvalidError := &client.InvalidClientError{Field: "Name", Reason: "name must be unique"}
+
+	_, _, err = store.Create(t.Context(), params)
+	invalid, ok := errors.AsType[*client.InvalidClientError](err)
+	if !ok {
+		t.Fatalf("got error %T, want %T", err, wantInvalidError)
+	}
+	if !reflect.DeepEqual(invalid, wantInvalidError) {
+		t.Fatalf("got invalid error %+v, want %+v", invalid, wantInvalidError)
+	}
+
+	// name uniqueness is case insensitive
+	params.Name = "Test-Client"
+	_, _, err = store.Create(t.Context(), params)
+	invalid, ok = errors.AsType[*client.InvalidClientError](err)
+	if !ok {
+		t.Fatalf("got error %T, want %T", err, wantInvalidError)
+	}
+	if !reflect.DeepEqual(invalid, wantInvalidError) {
+		t.Fatalf("got invalid error %+v, want %+v", invalid, wantInvalidError)
+	}
+}
