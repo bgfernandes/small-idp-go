@@ -86,7 +86,7 @@ Details worth knowing:
 
 ## Configuration
 
-The server reads its configuration from environment variables at startup. Every variable has a default that matches `compose.yaml`, so once the database is running `go run ./cmd/server` works with no further setup. An unset or empty variable falls back to its default.
+The server and the `clients` tool read their configuration from environment variables at startup. Every variable has a default that matches `compose.yaml`, so once the database is running `go run ./cmd/server` works with no further setup. An unset or empty variable falls back to its default. The `clients` tool uses only `SMALLIDP_DATABASE_URL`.
 
 | Variable                | Default                                                   | Description                                                                 |
 | ----------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------- |
@@ -119,3 +119,21 @@ Two proxy rules cover it:
 | `https://example.com/.well-known/oauth-authorization-server/idp` | `/.well-known/oauth-authorization-server` | The metadata URL as RFC 8414 §3.1 defines it: the well-known segment is inserted before the path. |
 
 The second rule is needed because the RFC 8414 §3.1 location sits at the host root, outside the `/idp` prefix, so the first rule never matches it. Without it, clients that follow the RFC strictly get a 404; clients that append `/.well-known/oauth-authorization-server` to the issuer work with the first rule alone. Appending is vendor behaviour, not what RFC 8414 defines: §5 allows it only as a transition measure for the `openid-configuration` suffix. Observed on 2026-10-04, Okta serves both the appended and the inserted location, and two Keycloak-based deployments (Red Hat SSO, CERN) serve only the appended one.
+
+## Creating a client
+
+The token endpoint only serves registered clients. `cmd/clients` creates one directly in the database:
+
+```sh
+go run ./cmd/clients create \
+  -name billing \
+  -grant-type client_credentials \
+  -audience https://api.example.com \
+  -scope read -scope write
+```
+
+`-grant-type`, `-audience` and `-scope` can be repeated. The tool prints the client ID and the secret once; only the SHA-256 hash of the secret is stored, so a lost secret means a new client. Names are unique, compared case-insensitively. The tool connects with `SMALLIDP_DATABASE_URL` and expects the schema to be in place, which the server does at startup.
+
+Exit codes follow the usual convention: 0 on success, 1 when the client was rejected or the database failed, 2 on a usage error. The result goes to stdout, diagnostics go to stderr. `go run ./cmd/clients -h` and `go run ./cmd/clients create -h` print the usage.
+
+This is a local development utility and is deliberately untested. A later phase adds an admin API for managing clients, and the tool will call that API instead of the database, so it can also manage a deployed instance; see [`PLAN.md`](PLAN.md).
