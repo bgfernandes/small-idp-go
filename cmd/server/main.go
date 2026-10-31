@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bgfernandes/small-idp-go/internal/config"
 	"github.com/bgfernandes/small-idp-go/internal/httpapi"
 	"github.com/bgfernandes/small-idp-go/internal/jwk"
 	"github.com/bgfernandes/small-idp-go/internal/postgres"
@@ -27,14 +28,14 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cfg := loadConfig(os.Getenv)
+	cfg := config.Load(os.Getenv)
 
 	key, err := jwk.Generate()
 	if err != nil {
 		return fmt.Errorf("generate key: %w", err)
 	}
 
-	db, err := postgres.Open(ctx, cfg.databaseURL)
+	db, err := postgres.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
@@ -48,13 +49,13 @@ func run() error {
 		return fmt.Errorf("run migrations: %w", err)
 	}
 
-	apiServer, err := httpapi.NewServer(cfg.issuer, key, slog.With("component", "HttpApi"))
+	apiServer, err := httpapi.NewServer(cfg.Issuer, key, slog.With("component", "HttpApi"))
 	if err != nil {
 		return fmt.Errorf("new server: %w", err)
 	}
 
 	srv := &http.Server{
-		Addr:              cfg.addr,
+		Addr:              cfg.Addr,
 		Handler:           apiServer.Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
@@ -65,7 +66,7 @@ func run() error {
 	// Buffered channel to receive any errors from ListenAndServe
 	listenAndServeErr := make(chan error, 1)
 
-	slog.Info("server is starting", slog.String("addr", cfg.addr), slog.String("issuer", cfg.issuer))
+	slog.Info("server is starting", slog.String("addr", cfg.Addr), slog.String("issuer", cfg.Issuer))
 
 	go func() {
 		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
