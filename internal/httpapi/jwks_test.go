@@ -12,7 +12,7 @@ import (
 func TestJWKSRoute(t *testing.T) {
 	t.Parallel()
 
-	apiServer, key := newTestServer(t)
+	apiServer, key := newTestServer(t, testServerOptions{})
 
 	t.Run("happy path", func(t *testing.T) {
 		t.Parallel()

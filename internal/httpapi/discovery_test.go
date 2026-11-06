@@ -70,7 +70,7 @@ func TestOAuthMetadataBody(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			apiServer, _ := newTestServerWithIssuer(t, tt.issuer)
+			apiServer, _ := newTestServer(t, testServerOptions{issuer: tt.issuer})
 
 			req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-authorization-server", nil)
 			rec := httptest.NewRecorder()
@@ -100,7 +100,7 @@ func TestOAuthMetadataBody(t *testing.T) {
 func TestOAuthMetadataExactKeys(t *testing.T) {
 	t.Parallel()
 
-	apiServer, _ := newTestServer(t)
+	apiServer, _ := newTestServer(t, testServerOptions{})
 
 	req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-authorization-server", nil)
 	rec := httptest.NewRecorder()
@@ -138,7 +138,7 @@ func TestOAuthMetadataExactKeys(t *testing.T) {
 func TestOAuthMetadataWrongMethod(t *testing.T) {
 	t.Parallel()
 
-	apiServer, _ := newTestServer(t)
+	apiServer, _ := newTestServer(t, testServerOptions{})
 
 	req := httptest.NewRequest(http.MethodPost, "/.well-known/oauth-authorization-server", nil)
 	rec := httptest.NewRecorder()
@@ -152,7 +152,7 @@ func TestOAuthMetadataWrongMethod(t *testing.T) {
 func TestOAuthMetadataBehindPrefixStrippingProxy(t *testing.T) {
 	t.Parallel()
 
-	apiServer, _ := newTestServerWithIssuer(t, "http://localhost:8080/tenant")
+	apiServer, _ := newTestServer(t, testServerOptions{issuer: "http://localhost:8080/tenant"})
 
 	req := httptest.NewRequest(http.MethodGet, "/tenant/.well-known/oauth-authorization-server", nil)
 	rec := httptest.NewRecorder()
@@ -193,7 +193,7 @@ func TestOAuthMetadataBehindPrefixStrippingProxy(t *testing.T) {
 func TestOAuthMetadataInsertedFormNotServed(t *testing.T) {
 	t.Parallel()
 
-	apiServer, _ := newTestServer(t)
+	apiServer, _ := newTestServer(t, testServerOptions{})
 
 	req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-authorization-server/tenant", nil)
 	rec := httptest.NewRecorder()

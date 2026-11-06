@@ -2,6 +2,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,65 +10,95 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
+	"github.com/bgfernandes/small-idp-go/internal/client"
 	"github.com/bgfernandes/small-idp-go/internal/jwk"
 )
 
+// ClientAuthenticator is an interface for authenticating clients.
+type ClientAuthenticator interface {
+	Authenticate(ctx context.Context, clientID, clientSecret string) (client.Client, error)
+}
+
 // Server is the HTTP server for the small IDP.
 type Server struct {
-	issuer        string
-	jwksURI       string
-	key           *jwk.Key
-	log           *slog.Logger
-	tokenEndpoint string
+	clientAuthenticator ClientAuthenticator
+	issuer              string
+	jwksURI             string
+	key                 *jwk.Key
+	log                 *slog.Logger
+	now                 func() time.Time
+	tokenEndpoint       string
+}
+
+// Config is the configuration for a server instance of the small IDP, every field is required.
+type Config struct {
+	ClientAuthenticator ClientAuthenticator
+	Issuer              string
+	Key                 *jwk.Key
+	Log                 *slog.Logger
+	Now                 func() time.Time
 }
 
 // NewServer creates a new HTTP server for the small IDP.
-func NewServer(issuer string, key *jwk.Key, log *slog.Logger) (*Server, error) {
+func NewServer(
+	config Config,
+) (*Server, error) {
+	if config.ClientAuthenticator == nil {
+		return nil, errors.New("Config.ClientAuthenticator is required")
+	}
+
 	// Validate issuer per RFC 8414 §2, accepting plain HTTP for now
-	issuerURL, err := url.Parse(issuer)
+	issuerURL, err := url.Parse(config.Issuer)
 	if err != nil {
-		return nil, fmt.Errorf("invalid issuer: %w", err)
+		return nil, fmt.Errorf("invalid Config.Issuer: %w", err)
 	}
 	if issuerURL.Scheme != "http" && issuerURL.Scheme != "https" {
-		return nil, errors.New("issuer must use HTTP or HTTPS scheme")
+		return nil, errors.New("Config.Issuer must use HTTP or HTTPS scheme")
 	}
 	if issuerURL.Host == "" {
-		return nil, errors.New("issuer must have a host")
+		return nil, errors.New("Config.Issuer must have a host")
 	}
 	// Do not allow query params or fragments as per RFC 8414 §2
-	if strings.ContainsAny(issuer, "?#") {
-		return nil, errors.New("issuer must not have query params or fragments")
+	if strings.ContainsAny(config.Issuer, "?#") {
+		return nil, errors.New("Config.Issuer must not have query params or fragments")
 	}
 	// Do not allow trailing slash for consistency
-	if strings.HasSuffix(issuer, "/") {
-		return nil, errors.New("issuer must not have a trailing slash")
+	if strings.HasSuffix(config.Issuer, "/") {
+		return nil, errors.New("Config.Issuer must not have a trailing slash")
 	}
 
-	if key == nil {
-		return nil, errors.New("key is required")
+	if config.Key == nil {
+		return nil, errors.New("Config.Key is required")
 	}
 
-	if log == nil {
-		return nil, errors.New("log is required")
+	if config.Log == nil {
+		return nil, errors.New("Config.Log is required")
 	}
 
-	tokenEndpoint, err := url.JoinPath(issuer, "token")
+	if config.Now == nil {
+		return nil, errors.New("Config.Now is required")
+	}
+
+	tokenEndpoint, err := url.JoinPath(config.Issuer, "token")
 	if err != nil {
 		return nil, fmt.Errorf("invalid token endpoint: %w", err)
 	}
 
-	jwksURI, err := url.JoinPath(issuer, "jwks")
+	jwksURI, err := url.JoinPath(config.Issuer, "jwks")
 	if err != nil {
 		return nil, fmt.Errorf("invalid JWKS URI: %w", err)
 	}
 
 	return &Server{
-		issuer:        issuer,
-		key:           key,
-		log:           log,
-		tokenEndpoint: tokenEndpoint,
-		jwksURI:       jwksURI,
+		clientAuthenticator: config.ClientAuthenticator,
+		issuer:              config.Issuer,
+		key:                 config.Key,
+		log:                 config.Log,
+		now:                 config.Now,
+		tokenEndpoint:       tokenEndpoint,
+		jwksURI:             jwksURI,
 	}, nil
 }
 

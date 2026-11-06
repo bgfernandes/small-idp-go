@@ -49,7 +49,15 @@ func run() error {
 		return fmt.Errorf("run migrations: %w", err)
 	}
 
-	apiServer, err := httpapi.NewServer(cfg.Issuer, key, slog.With("component", "HttpApi"))
+	apiServer, err := httpapi.NewServer(
+		httpapi.Config{
+			ClientAuthenticator: postgres.NewClientStore(db),
+			Issuer:              cfg.Issuer,
+			Key:                 key,
+			Log:                 slog.With("component", "HttpApi"),
+			Now:                 time.Now,
+		},
+	)
 	if err != nil {
 		return fmt.Errorf("new server: %w", err)
 	}

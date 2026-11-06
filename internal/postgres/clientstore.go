@@ -22,9 +22,6 @@ type ClientStore struct {
 	db *sql.DB
 }
 
-// compile-time check that ClientStore implements the client.Store interface
-var _ client.Store = (*ClientStore)(nil)
-
 // NewClientStore creates a new ClientStore.
 func NewClientStore(db *sql.DB) *ClientStore {
 	return &ClientStore{db: db}

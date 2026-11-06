@@ -2,7 +2,6 @@
 package client
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -38,14 +37,6 @@ type CreateParams struct {
 	GrantTypes []GrantType
 	Name       string
 	Scopes     []string
-}
-
-// Store is a client store interface.
-// TODO: Move this interface to httpapi and cmd/client packages
-type Store interface {
-	Get(ctx context.Context, clientID string) (Client, error)
-	Create(ctx context.Context, params CreateParams) (Client, string, error)
-	Authenticate(ctx context.Context, clientID, clientSecret string) (Client, error)
 }
 
 // ErrNotFound is returned when a client is not found.
