@@ -78,9 +78,9 @@ type credentials struct {
 	usesBasicAuth bool
 }
 
-// clientCredentials parses the client credentials from the request and returns them.
+// parseCredentials parses the client credentials from the request and returns them.
 // TODO: move this to another file when reused.
-func clientCredentials(r *http.Request) (credentials, error) {
+func parseCredentials(r *http.Request) (credentials, error) {
 	usesBasicAuth := r.Header.Get("Authorization") != ""
 
 	formClientSecret, err := singleFormValue(r.PostForm, "client_secret")
@@ -263,7 +263,7 @@ func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	creds, err := clientCredentials(r)
+	creds, err := parseCredentials(r)
 	if err != nil {
 		s.writeTokenError(w, err)
 		return
