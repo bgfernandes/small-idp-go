@@ -20,12 +20,12 @@ func TestNew(t *testing.T) {
 		{
 			name:       "without scope",
 			scope:      "",
-			wantClaims: `{"iss":"issuer","sub":"subject","aud":"audience","exp":1,"iat":2,"jti":"json web token id","client_id":"client-id"}`,
+			wantClaims: `{"iss":"issuer","sub":"subject","aud":["audience"],"exp":1,"iat":2,"jti":"json web token id","client_id":"client-id"}`,
 		},
 		{
 			name:       "with scope",
 			scope:      "read write",
-			wantClaims: `{"iss":"issuer","sub":"subject","aud":"audience","exp":1,"iat":2,"jti":"json web token id","client_id":"client-id","scope":"read write"}`,
+			wantClaims: `{"iss":"issuer","sub":"subject","aud":["audience"],"exp":1,"iat":2,"jti":"json web token id","client_id":"client-id","scope":"read write"}`,
 		},
 	}
 
@@ -41,7 +41,7 @@ func TestNew(t *testing.T) {
 			claims := AccessTokenClaims{
 				Iss:      "issuer",
 				Sub:      "subject",
-				Aud:      "audience",
+				Aud:      []string{"audience"},
 				Exp:      1,
 				Iat:      2,
 				Jti:      "json web token id",

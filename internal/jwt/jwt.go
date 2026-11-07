@@ -18,10 +18,12 @@ type Header struct {
 type RegisteredClaims struct {
 	Iss string `json:"iss"`
 	Sub string `json:"sub"`
-	Aud string `json:"aud"`
-	Exp int64  `json:"exp"`
-	Iat int64  `json:"iat"`
-	Jti string `json:"jti"`
+	// RFC 7519 §4.1.3 allows the array form even for a single audience, though it is not usual.
+	// TODO: use a string instead of an array when it's a single audience.
+	Aud []string `json:"aud"`
+	Exp int64    `json:"exp"`
+	Iat int64    `json:"iat"`
+	Jti string   `json:"jti"`
 }
 
 type AccessTokenClaims struct {
