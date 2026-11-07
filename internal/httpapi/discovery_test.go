@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"testing"
+
+	"github.com/bgfernandes/small-idp-go/internal/client"
 )
 
 func TestOAuthMetadataBody(t *testing.T) {
@@ -24,7 +26,7 @@ func TestOAuthMetadataBody(t *testing.T) {
 				TokenEndpoint: "http://localhost:8080/token",
 				JWKSURI:       "http://localhost:8080/jwks",
 				GrantTypesSupported: []string{
-					grantTypeClientCredentials,
+					string(client.GrantTypeClientCredentials),
 				},
 				TokenEndpointAuthMethodsSupported: []string{
 					tokenEndpointAuthMethodBasic,
@@ -40,7 +42,7 @@ func TestOAuthMetadataBody(t *testing.T) {
 				TokenEndpoint: "http://localhost:8080/tenant/token",
 				JWKSURI:       "http://localhost:8080/tenant/jwks",
 				GrantTypesSupported: []string{
-					grantTypeClientCredentials,
+					string(client.GrantTypeClientCredentials),
 				},
 				TokenEndpointAuthMethodsSupported: []string{
 					tokenEndpointAuthMethodBasic,
@@ -56,7 +58,7 @@ func TestOAuthMetadataBody(t *testing.T) {
 				TokenEndpoint: "https://idp.example.com/a/b/token",
 				JWKSURI:       "https://idp.example.com/a/b/jwks",
 				GrantTypesSupported: []string{
-					grantTypeClientCredentials,
+					string(client.GrantTypeClientCredentials),
 				},
 				TokenEndpointAuthMethodsSupported: []string{
 					tokenEndpointAuthMethodBasic,

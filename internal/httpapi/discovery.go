@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"net/http"
+
+	"github.com/bgfernandes/small-idp-go/internal/client"
 )
 
 type authorizationServerMetadata struct {
@@ -18,23 +20,25 @@ type authorizationServerMetadata struct {
 }
 
 const (
-	grantTypeClientCredentials   = "client_credentials"
 	tokenEndpointAuthMethodBasic = "client_secret_basic"
 	tokenEndpointAuthMethodPost  = "client_secret_post"
 )
 
 func (s *Server) handleOAuthAuthorizationServer(w http.ResponseWriter, _ *http.Request) {
+	grantTypesSupported := make([]string, len(client.SupportedGrantTypes))
+	for i, grantType := range client.SupportedGrantTypes {
+		grantTypesSupported[i] = string(grantType)
+	}
+
 	// Only fields that are needed for client_credentials grant type according to RFC 8414.
 	// response_types_supported is REQUIRED according to RFC 8414 §2, but the server currently supports no response types,
 	// and §3.2 says "Claims with zero elements MUST be omitted". The two rules contradict each other
 	// for a server with no authorization endpoint, so we omit it for now.
 	s.writeJSON(w, http.StatusOK, authorizationServerMetadata{
-		Issuer:        s.issuer,
-		TokenEndpoint: s.tokenEndpoint,
-		JWKSURI:       s.jwksURI,
-		GrantTypesSupported: []string{
-			grantTypeClientCredentials,
-		},
+		Issuer:              s.issuer,
+		TokenEndpoint:       s.tokenEndpoint,
+		JWKSURI:             s.jwksURI,
+		GrantTypesSupported: grantTypesSupported,
 		TokenEndpointAuthMethodsSupported: []string{
 			tokenEndpointAuthMethodBasic,
 			tokenEndpointAuthMethodPost,
