@@ -58,7 +58,10 @@ func main() {
 }
 
 func run() error {
-	cfg := config.Load(os.Getenv)
+	cfg, err := config.Load(os.Getenv)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
 
 	switch os.Args[1] {
 	case "create":

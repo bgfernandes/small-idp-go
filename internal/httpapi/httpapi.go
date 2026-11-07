@@ -23,6 +23,7 @@ type ClientAuthenticator interface {
 
 // Server is the HTTP server for the small IDP.
 type Server struct {
+	accessTokenLifetime time.Duration
 	clientAuthenticator ClientAuthenticator
 	issuer              string
 	jwksURI             string
@@ -34,6 +35,7 @@ type Server struct {
 
 // Config is the configuration for a server instance of the small IDP, every field is required.
 type Config struct {
+	AccessTokenLifetime time.Duration
 	ClientAuthenticator ClientAuthenticator
 	Issuer              string
 	Key                 *jwk.Key
@@ -45,6 +47,10 @@ type Config struct {
 func NewServer(
 	config Config,
 ) (*Server, error) {
+	if config.AccessTokenLifetime <= 0 {
+		return nil, errors.New("Config.AccessTokenLifetime must be greater than 0")
+	}
+
 	if config.ClientAuthenticator == nil {
 		return nil, errors.New("Config.ClientAuthenticator is required")
 	}
@@ -92,6 +98,7 @@ func NewServer(
 	}
 
 	return &Server{
+		accessTokenLifetime: config.AccessTokenLifetime,
 		clientAuthenticator: config.ClientAuthenticator,
 		issuer:              config.Issuer,
 		key:                 config.Key,

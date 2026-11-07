@@ -57,6 +57,7 @@ func TestNewServerIssuerValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			_, err := NewServer(Config{
+				AccessTokenLifetime: 5 * time.Minute,
 				ClientAuthenticator: clientAuthenticator,
 				Issuer:              tt.issuer,
 				Key:                 key,
@@ -84,35 +85,42 @@ func TestNewServerRequiredDependencies(t *testing.T) {
 
 	tests := []struct {
 		name                string
+		accessTokenLifetime time.Duration
 		clientAuthenticator ClientAuthenticator
 		key                 *jwk.Key
 		log                 *slog.Logger
 		now                 func() time.Time
+		wantErr             bool
 	}{
-		{name: "nil key", clientAuthenticator: clientAuthenticator, key: nil, log: log, now: time.Now},
-		{name: "nil logger", clientAuthenticator: clientAuthenticator, key: key, log: nil, now: time.Now},
-		{name: "nil clientAuthenticator", clientAuthenticator: nil, key: key, log: log, now: time.Now},
-		{name: "nil now function", clientAuthenticator: clientAuthenticator, key: key, log: log, now: nil},
+		{name: "zero access token lifetime", accessTokenLifetime: 0, clientAuthenticator: clientAuthenticator, key: key, log: log, now: time.Now, wantErr: true},
+		{name: "negative access token lifetime", accessTokenLifetime: -1 * time.Second, clientAuthenticator: clientAuthenticator, key: key, log: log, now: time.Now, wantErr: true},
+		{name: "nil clientAuthenticator", accessTokenLifetime: 5 * time.Minute, clientAuthenticator: nil, key: key, log: log, now: time.Now, wantErr: true},
+		{name: "nil key", accessTokenLifetime: 5 * time.Minute, clientAuthenticator: clientAuthenticator, key: nil, log: log, now: time.Now, wantErr: true},
+		{name: "nil logger", accessTokenLifetime: 5 * time.Minute, clientAuthenticator: clientAuthenticator, key: key, log: nil, now: time.Now, wantErr: true},
+		{name: "nil now function", accessTokenLifetime: 5 * time.Minute, clientAuthenticator: clientAuthenticator, key: key, log: log, now: nil, wantErr: true},
+		{name: "valid config", accessTokenLifetime: 5 * time.Minute, clientAuthenticator: clientAuthenticator, key: key, log: log, now: time.Now, wantErr: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			_, err := NewServer(Config{
+				AccessTokenLifetime: tt.accessTokenLifetime,
 				ClientAuthenticator: tt.clientAuthenticator,
 				Issuer:              "http://localhost:8080",
 				Key:                 tt.key,
 				Log:                 tt.log,
 				Now:                 tt.now,
 			})
-			if err == nil {
-				t.Errorf("got nil error, want error for %+v", tt)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("got error %t, want error %t", (err != nil), tt.wantErr)
 			}
 		})
 	}
 }
 
 type testServerOptions struct {
+	accessTokenLifetime time.Duration
 	clientAuthenticator ClientAuthenticator
 	issuer              string
 	now                 func() time.Time
@@ -120,6 +128,10 @@ type testServerOptions struct {
 
 func newTestServer(t *testing.T, opts testServerOptions) (*Server, *jwk.Key) {
 	t.Helper()
+
+	if opts.accessTokenLifetime == 0 {
+		opts.accessTokenLifetime = 5 * time.Minute
+	}
 
 	if opts.clientAuthenticator == nil {
 		opts.clientAuthenticator = &fakeClientAuthenticator{}
@@ -140,6 +152,7 @@ func newTestServer(t *testing.T, opts testServerOptions) (*Server, *jwk.Key) {
 
 	apiServer, err := NewServer(
 		Config{
+			AccessTokenLifetime: opts.accessTokenLifetime,
 			ClientAuthenticator: opts.clientAuthenticator,
 			Issuer:              opts.issuer,
 			Key:                 key,

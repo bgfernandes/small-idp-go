@@ -28,7 +28,10 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cfg := config.Load(os.Getenv)
+	cfg, err := config.Load(os.Getenv)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
 
 	key, err := jwk.Generate()
 	if err != nil {
@@ -51,6 +54,7 @@ func run() error {
 
 	apiServer, err := httpapi.NewServer(
 		httpapi.Config{
+			AccessTokenLifetime: cfg.AccessTokenLifetime,
 			ClientAuthenticator: postgres.NewClientStore(db),
 			Issuer:              cfg.Issuer,
 			Key:                 key,

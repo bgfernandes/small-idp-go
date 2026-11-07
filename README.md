@@ -88,11 +88,12 @@ Details worth knowing:
 
 The server and the `clients` tool read their configuration from environment variables at startup. Every variable has a default that matches `compose.yaml`, so once the database is running `go run ./cmd/server` works with no further setup. An unset or empty variable falls back to its default. The `clients` tool uses only `SMALLIDP_DATABASE_URL`.
 
-| Variable                | Default                                                   | Description                                                                 |
-| ----------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `SMALLIDP_ISSUER`       | `http://localhost:8080`                                   | The issuer identifier: the public URL clients use to reach the server.      |
-| `SMALLIDP_ADDR`         | `:8080`                                                   | The address the HTTP server listens on, in `host:port` form (e.g. `:9000`). |
-| `SMALLIDP_DATABASE_URL` | `postgresql://smallidp:smallidp@localhost:5432/smallidp` | The PostgreSQL connection URL. Pending migrations are applied at startup.   |
+| Variable                         | Default                                                  | Description                                                                                                                                                             |
+| -------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SMALLIDP_ISSUER`                | `http://localhost:8080`                                  | The issuer identifier: the public URL clients use to reach the server.                                                                                                  |
+| `SMALLIDP_ADDR`                  | `:8080`                                                  | The address the HTTP server listens on, in `host:port` form (e.g. `:9000`).                                                                                             |
+| `SMALLIDP_DATABASE_URL`          | `postgresql://smallidp:smallidp@localhost:5432/smallidp` | The PostgreSQL connection URL. Pending migrations are applied at startup.                                                                                               |
+| `SMALLIDP_ACCESS_TOKEN_LIFETIME` | `5m`                                                     | How long an issued access token is valid, as a Go duration such as `90s`, `5m` or `1h`; must be positive. Sets the `exp` claim and the `expires_in` response parameter. |
 
 The issuer and the address are independent. The issuer is what the server says about itself in tokens and metadata; the address is where it binds. Behind a reverse proxy they differ:
 
