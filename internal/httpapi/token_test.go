@@ -348,3 +348,144 @@ func TestTokenAuthenticatorError(t *testing.T) {
 
 	assertTokenError(t, rec, http.StatusInternalServerError, tokenErrorResponse{Error: "server_error", ErrorDescription: "internal server error"})
 }
+
+func TestTokenInvalidGrantType(t *testing.T) {
+	t.Parallel()
+
+	apiServer, _ := newTestServer(t, testServerOptions{
+		clientAuthenticator: &fakeClientAuthenticator{
+			authenticate: func(ctx context.Context, clientID, clientSecret string) (client.Client, error) {
+				return client.Client{GrantTypes: []client.GrantType{"some_grant_type"}}, nil
+			},
+		},
+	})
+
+	tests := []struct {
+		name            string
+		grantType       string
+		wantCode        string
+		wantDescription string
+	}{
+		{name: "missing grant type", grantType: "", wantCode: "invalid_request", wantDescription: "grant_type is required"},
+		{name: "unsupported grant type", grantType: "invalid", wantCode: "unsupported_grant_type", wantDescription: "unsupported grant_type"},
+		{name: "unauthorized grant type", grantType: "client_credentials", wantCode: "unauthorized_client", wantDescription: "unauthorized grant_type"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(url.Values{
+				"grant_type": {tt.grantType},
+			}.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
+			req.Header.Set("Authorization", basicAuth("client", "secret"))
+
+			rec := httptest.NewRecorder()
+			apiServer.Routes().ServeHTTP(rec, req)
+
+			assertTokenError(t, rec, http.StatusBadRequest, tokenErrorResponse{Error: tt.wantCode, ErrorDescription: tt.wantDescription})
+		})
+	}
+}
+
+func TestTokenInvalidScope(t *testing.T) {
+	t.Parallel()
+
+	apiServer, _ := newTestServer(t, testServerOptions{
+		clientAuthenticator: &fakeClientAuthenticator{
+			authenticate: func(ctx context.Context, clientID, clientSecret string) (client.Client, error) {
+				return client.Client{
+					GrantTypes: []client.GrantType{client.GrantTypeClientCredentials},
+					Scopes:     []string{"scope1", "scope2"},
+				}, nil
+			},
+		},
+	})
+
+	tests := []struct {
+		name  string
+		scope string
+	}{
+		{name: "unauthorized single scope", scope: "scope3"},
+		{name: "unauthorized multiple scopes", scope: "scope3 scope4"},
+		{name: "unauthorized multiple scopes with empty scope", scope: "scope1 "},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(url.Values{
+				"grant_type": {string(client.GrantTypeClientCredentials)},
+				"scope":      {tt.scope},
+			}.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
+			req.Header.Set("Authorization", basicAuth("client", "secret"))
+
+			rec := httptest.NewRecorder()
+			apiServer.Routes().ServeHTTP(rec, req)
+
+			assertTokenError(t, rec, http.StatusBadRequest, tokenErrorResponse{Error: "invalid_scope", ErrorDescription: "unknown or malformed scope"})
+		})
+	}
+}
+
+func TestTokenInvalidResource(t *testing.T) {
+	t.Parallel()
+
+	apiServer, _ := newTestServer(t, testServerOptions{
+		clientAuthenticator: &fakeClientAuthenticator{
+			authenticate: func(ctx context.Context, clientID, clientSecret string) (client.Client, error) {
+				return client.Client{
+					Audiences:  []string{"resource1", "resource2"},
+					GrantTypes: []client.GrantType{client.GrantTypeClientCredentials},
+					Scopes:     []string{"scope1", "scope2"},
+				}, nil
+			},
+		},
+	})
+
+	tests := []struct {
+		name      string
+		resources []string
+	}{
+		{name: "single unknown resource", resources: []string{"unknown1"}},
+		{name: "multiple unknown resources", resources: []string{"unknown1", "unknown2"}},
+		{name: "one known resource with an unknown resource", resources: []string{"resource1", "unknown2"}},
+		{name: "one unknown resource with a known resource", resources: []string{"unknown1", "resource2"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(url.Values{
+				"grant_type": {string(client.GrantTypeClientCredentials)},
+				"resource":   tt.resources,
+				"scope":      {"scope1"},
+			}.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
+			req.Header.Set("Authorization", basicAuth("client", "secret"))
+
+			rec := httptest.NewRecorder()
+			apiServer.Routes().ServeHTTP(rec, req)
+
+			assertTokenError(t, rec, http.StatusBadRequest, tokenErrorResponse{Error: "invalid_target", ErrorDescription: "unknown or malformed resource"})
+		})
+	}
+}
+
+// TODO: success test cases:
+// body credentials,
+// header credentials,
+// client_id in both places,
+// percent-encoded Basic client_id decoded,
+// default scope,
+// de-duplicated scope,
+// scope order,
+// default resource,
+// de-duplicated resource,
+// multiple resources,
+// resource= with an empty value
+// resource= with an empty value along with a valid value

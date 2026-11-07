@@ -7,6 +7,8 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"slices"
+	"strings"
 
 	"github.com/bgfernandes/small-idp-go/internal/client"
 )
@@ -147,6 +149,101 @@ func clientCredentials(r *http.Request) (credentials, error) {
 	}, nil
 }
 
+// parseGrantType parses the grant type from the request, checks if it is supported by the client and returns the typed grant type.
+func parseGrantType(r *http.Request, c client.Client) (client.GrantType, error) {
+	rawValue, err := singleFormValue(r.PostForm, "grant_type")
+	if err != nil {
+		return "", &oauthError{status: http.StatusBadRequest, code: "invalid_request", description: err.Error()}
+	}
+
+	if rawValue == "" {
+		return "", &oauthError{status: http.StatusBadRequest, code: "invalid_request", description: "grant_type is required"}
+	}
+
+	typedGrantType := client.GrantType(rawValue)
+
+	if !slices.Contains(client.SupportedGrantTypes, typedGrantType) {
+		return "", &oauthError{status: http.StatusBadRequest, code: "unsupported_grant_type", description: "unsupported grant_type"}
+	}
+
+	if !slices.Contains(c.GrantTypes, typedGrantType) {
+		return "", &oauthError{status: http.StatusBadRequest, code: "unauthorized_client", description: "unauthorized grant_type"}
+	}
+
+	return typedGrantType, nil
+}
+
+// parseScope parses the scope from the request, checks if it is supported by the client, and returns it as a
+// deduplicated space-separated string.
+// This function does not re-validate the scopes, it assumes they were validated on creation by the client store.
+func parseScope(r *http.Request, c client.Client) (string, error) {
+	rawValue, err := singleFormValue(r.PostForm, "scope")
+	if err != nil {
+		return "", &oauthError{status: http.StatusBadRequest, code: "invalid_request", description: err.Error()}
+	}
+
+	// RFC 6749 §3.3 says that if missing, authorization server MUST either process the request using a pre-defined default
+	// value or fail the request indicating an invalid scope. Here we will default to all the scopes supported by the client, which
+	// is frequently used in practice.
+	if rawValue == "" {
+		return strings.Join(c.Scopes, " "), nil
+	}
+
+	scopes := strings.Split(rawValue, " ")
+	seenScopes := map[string]bool{}
+	dedupedScopes := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		if !slices.Contains(c.Scopes, scope) {
+			return "", &oauthError{status: http.StatusBadRequest, code: "invalid_scope", description: "unknown or malformed scope"}
+		}
+
+		if !seenScopes[scope] {
+			seenScopes[scope] = true
+			dedupedScopes = append(dedupedScopes, scope)
+		}
+	}
+
+	return strings.Join(dedupedScopes, " "), nil
+}
+
+// parseResource parses the resource from the request, checks if it is supported by the client, and returns it as a
+// deduplicated list of strings.
+// This function does not re-validate the resources, it assumes they were validated on creation by the client store.
+func parseResource(r *http.Request, c client.Client) ([]string, error) {
+	rawValues := r.PostForm["resource"]
+
+	scrubbedValues := slices.Clone(rawValues)
+
+	// RFC 6749 §3.2 says that a parameter sent without a value is treated as omitted, so drop empty values before validating
+	scrubbedValues = slices.DeleteFunc(scrubbedValues, func(value string) bool {
+		return value == ""
+	})
+
+	// Per RFC 8707 §2.1, if an authorization request has no resource parameter, the authorization server MAY process the request with
+	// no specific resource or by using a predefined default resource value, but it specifies nothing about the access token request.
+	// RFC 9068 §3 says that when the request has no resource parameter, the server MUST use a default resource indicator for the token's aud claim.
+	// The audiences list is used in this project as the default resource indicator, and also to validate the resource
+	// parameter when it is sent, rejecting unknown values with invalid_target per RFC 8707 §2
+	if len(scrubbedValues) == 0 {
+		return c.Audiences, nil
+	}
+
+	seenResources := map[string]bool{}
+	dedupedResources := make([]string, 0, len(scrubbedValues))
+	for _, v := range scrubbedValues {
+		if !slices.Contains(c.Audiences, v) {
+			return nil, &oauthError{status: http.StatusBadRequest, code: "invalid_target", description: "unknown or malformed resource"}
+		}
+
+		if !seenResources[v] {
+			seenResources[v] = true
+			dedupedResources = append(dedupedResources, v)
+		}
+	}
+
+	return dedupedResources, nil
+}
+
 func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 	// Body type must be application/x-www-form-urlencoded, according to RFC 6749 §4.4.2
 	mimeType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
@@ -172,7 +269,7 @@ func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = s.clientAuthenticator.Authenticate(r.Context(), creds.clientID, creds.clientSecret)
+	c, err := s.clientAuthenticator.Authenticate(r.Context(), creds.clientID, creds.clientSecret)
 	if err != nil {
 		if errors.Is(err, client.ErrUnknownClientOrWrongSecret) {
 			s.writeTokenError(w, invalidClientError(creds.usesBasicAuth, "invalid client credentials"))
@@ -182,9 +279,23 @@ func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO check grant type, then client authorisation for that grant, then scope, then resource
-	// TODO check grant_type against the allowed values for unsupported_grant_type, missing is invalid_request
-	// TODO check grant_types against the client's allowed grant_types for unauthorized_client
+	_, err = parseGrantType(r, c)
+	if err != nil {
+		s.writeTokenError(w, err)
+		return
+	}
+
+	_, err = parseScope(r, c)
+	if err != nil {
+		s.writeTokenError(w, err)
+		return
+	}
+
+	_, err = parseResource(r, c)
+	if err != nil {
+		s.writeTokenError(w, err)
+		return
+	}
 
 	// TODO all the rest :)
 	http.Error(w, "not implemented", http.StatusNotImplemented)
