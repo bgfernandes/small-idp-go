@@ -105,8 +105,9 @@ func NewServer(
 // Routes returns the HTTP routes for the small IDP.
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /jwks", s.handleJWKS)
 	mux.HandleFunc("GET /.well-known/oauth-authorization-server", s.handleOAuthAuthorizationServer)
+	mux.HandleFunc("GET /jwks", s.handleJWKS)
+	mux.HandleFunc("POST /token", s.handleToken)
 	return mux
 }
 
