@@ -49,7 +49,7 @@ func TestNew(t *testing.T) {
 				Scope:    tt.scope,
 			}
 
-			token, err := New(key, "some-type", claims)
+			token, err := New(key, HeaderTypeAccessToken, claims)
 			if err != nil {
 				t.Fatalf("New() failed: %v", err)
 			}
@@ -82,8 +82,8 @@ func TestNew(t *testing.T) {
 			if header.KID != key.KID() {
 				t.Fatalf("header.KID = %q, want %q", header.KID, key.KID())
 			}
-			if header.Typ != "some-type" {
-				t.Fatalf("header.Typ = %q, want %q", header.Typ, "some-type")
+			if header.Typ != HeaderTypeAccessToken {
+				t.Fatalf("header.Typ = %q, want %q", header.Typ, HeaderTypeAccessToken)
 			}
 
 			// Check claims
@@ -109,7 +109,7 @@ func TestNewMarshalError(t *testing.T) {
 
 	// Unmarshable claims return an error and an empty string
 	unmarshableClaims := make(chan int)
-	token, err := New(key, "some-type", unmarshableClaims)
+	token, err := New(key, HeaderTypeAccessToken, unmarshableClaims)
 	if err == nil {
 		t.Fatalf("New() should have returned an error")
 	}

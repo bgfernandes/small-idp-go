@@ -9,10 +9,16 @@ import (
 	"github.com/bgfernandes/small-idp-go/internal/jwk"
 )
 
+type HeaderType string
+
+const (
+	HeaderTypeAccessToken HeaderType = "at+jwt"
+)
+
 type Header struct {
-	Alg string `json:"alg"`
-	KID string `json:"kid"`
-	Typ string `json:"typ"`
+	Alg string     `json:"alg"`
+	KID string     `json:"kid"`
+	Typ HeaderType `json:"typ"`
 }
 
 type RegisteredClaims struct {
@@ -33,7 +39,7 @@ type AccessTokenClaims struct {
 }
 
 // New creates a new signed JWT.
-func New(key *jwk.Key, typ string, claims any) (string, error) {
+func New(key *jwk.Key, typ HeaderType, claims any) (string, error) {
 	header := Header{
 		Alg: key.Alg(),
 		KID: key.KID(),
