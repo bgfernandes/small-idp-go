@@ -138,3 +138,69 @@ go run ./cmd/clients create \
 Exit codes follow the usual convention: 0 on success, 1 when the client was rejected or the database failed, 2 on a usage error. The result goes to stdout, diagnostics go to stderr. `go run ./cmd/clients -h` and `go run ./cmd/clients create -h` print the usage.
 
 This is a local development utility and is deliberately untested. A later phase adds an admin API for managing clients, and the tool will call that API instead of the database, so it can also manage a deployed instance; see [`PLAN.md`](PLAN.md).
+
+## Getting a token
+
+With the server running and a client created, `POST /token` issues an access token for the `client_credentials` grant (RFC 6749 §4.4). The body is `application/x-www-form-urlencoded`. The client authenticates with HTTP Basic (`client_secret_basic`), where the ID and the secret are form-encoded before being joined with `:` and base64-encoded, which `curl -u` does not do, so this form is only exact for IDs and secrets without reserved characters:
+
+```sh
+curl -u "$CLIENT_ID:$CLIENT_SECRET" \
+  -d grant_type=client_credentials \
+  -d scope=read \
+  http://localhost:8080/token
+```
+
+Or with the credentials in the body (`client_secret_post`):
+
+```sh
+curl \
+  -d grant_type=client_credentials \
+  -d client_id="$CLIENT_ID" \
+  -d client_secret="$CLIENT_SECRET" \
+  http://localhost:8080/token
+```
+
+Using both at once is rejected (RFC 6749 §2.3). The response is the RFC 6749 §5.1 shape, with `Cache-Control: no-store`:
+
+```json
+{
+  "access_token": "eyJhbGciOiJFUzI1NiIsImtpZCI6IkZleHFhS2hzeGY5SnVLRTl4eWlKbUJJbXUxOUF6cExtWWNWVnVSaFVwbWMiLCJ0eXAiOiJhdCtqd3QifQ.eyJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwODAiLCJzdWIiOiJDM0g0WFRVRk9HSFFXRkdESFBSVFlFUEszMiIsImF1ZCI6WyJodHRwczovL2FwaS5leGFtcGxlLmNvbSJdLCJleHAiOjE3OTQyNDg1NjUsImlhdCI6MTc5NDI0ODI2NSwianRpIjoiQ1E0RVFDTk1RNDI2NkQ2Q1E3TVpXSEUzWUgiLCJjbGllbnRfaWQiOiJDM0g0WFRVRk9HSFFXRkdESFBSVFlFUEszMiIsInNjb3BlIjoicmVhZCJ9.D1FK2Ns3Uo58tT6zDeX6eZ1dSNQ-6pyTHJIn9IXIUsI9PCL8NHaJ6CCgYApUPIraSPSxZu-hau6wbxWecZJXfg",
+  "token_type": "Bearer",
+  "expires_in": 300,
+  "scope": "read"
+}
+```
+
+Optional request parameters:
+
+- `scope`: a space-separated subset of the client's registered scopes (RFC 6749 §3.3). Omitted, the client's registered scopes are granted. Anything outside them is `invalid_scope`. The granted scope is always echoed in the response.
+- `resource`: one or more absolute URIs naming the resource servers the token is for (RFC 8707). Each must be among the client's registered audiences, otherwise `invalid_target`. Omitted, every registered audience is used. The values become the token's `aud` claim.
+
+The access token is a JWT per the RFC 9068 profile: header `typ: at+jwt`, `alg: ES256` and the `kid` of the key published at `/jwks`; claims `iss` (the configured issuer), `sub` and `client_id` (both the client ID, since no user is involved), `aud` (always an array), `exp`, `iat`, `jti`, and `scope` when non-empty. `expires_in` and `exp - iat` both equal `SMALLIDP_ACCESS_TOKEN_LIFETIME`. The token above decodes to:
+
+```json
+{"alg": "ES256", "kid": "FexqaKhsxf9JuKE9xyiJmBImu19AzpLmYcVVuRhUpmc", "typ": "at+jwt"}
+{
+  "iss": "http://localhost:8080",
+  "sub": "C3H4XTUFOGHQWFGDHPRTYEPK32",
+  "aud": ["https://api.example.com"],
+  "exp": 1794248565,
+  "iat": 1794248265,
+  "jti": "CQ4EQCNMQ4266D6CQ7MZWHE3YH",
+  "client_id": "C3H4XTUFOGHQWFGDHPRTYEPK32",
+  "scope": "read"
+}
+```
+
+The signing key is generated at startup, so tokens do not survive a restart; key persistence and rotation come in a later phase. The server does not yet verify tokens itself; a resource server validates them against `/jwks` and the metadata at `/.well-known/oauth-authorization-server`.
+
+Errors follow RFC 6749 §5.2: a JSON body with `error` and `error_description`, status 400, except that a failed client authentication answers 401 with a `WWW-Authenticate: Basic` challenge when the credentials came in the `Authorization` header:
+
+```json
+{
+  "error": "invalid_client",
+  "error_description": "invalid client credentials"
+}
+```
+
+Error codes used: `invalid_request` (wrong content type, body too large, bad form encoding, a repeated parameter, two authentication methods, a `client_id` mismatch between header and body), `invalid_client`, `unsupported_grant_type`, `unauthorized_client` (the client is not allowed this grant), `invalid_scope`, `invalid_target`. Descriptions are fixed strings and never echo request values.
