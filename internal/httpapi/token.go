@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/bgfernandes/small-idp-go/internal/client"
+	"github.com/bgfernandes/small-idp-go/internal/jwt"
 )
 
 // oauthError is a custom error type for OAuth 2.0 errors.
@@ -244,6 +246,13 @@ func parseResource(r *http.Request, c client.Client) ([]string, error) {
 	return dedupedResources, nil
 }
 
+type tokenResponse struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	ExpiresIn   int    `json:"expires_in"`
+	Scope       string `json:"scope,omitempty"`
+}
+
 func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 	// Body type must be application/x-www-form-urlencoded, according to RFC 6749 §4.4.2
 	mimeType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
@@ -285,18 +294,51 @@ func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = parseScope(r, c)
+	scope, err := parseScope(r, c)
 	if err != nil {
 		s.writeTokenError(w, err)
 		return
 	}
 
-	_, err = parseResource(r, c)
+	resources, err := parseResource(r, c)
 	if err != nil {
 		s.writeTokenError(w, err)
 		return
 	}
 
-	// TODO all the rest :)
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	// TODO: currently this handler only supports client_credentials, in the future, branched off based on grant_type from here
+
+	currentTime := s.now()
+	// RFC 9068 §2.2 requires the following claims: iss, exp, aud, sub, client_id, iat, jti
+	// §2.2.1 and §2.2.2 only apply for grants involving a resource owner, so for client credentials they do not apply
+	// §2.2.3 states that the jwt AT SHOULD include the scope claim, and RFC 6749 §5.1 says it is optional if identical
+	// to the scope requested by the client, but we always include it when it's not empty to simplify the implementation
+	claims := jwt.AccessTokenClaims{
+		Iss:      s.issuer,
+		Sub:      c.ID,
+		Aud:      resources,
+		Exp:      currentTime.Add(s.accessTokenLifetime).Unix(),
+		Iat:      currentTime.Unix(),
+		Jti:      rand.Text(),
+		ClientID: c.ID,
+		Scope:    scope,
+	}
+
+	accessToken, err := jwt.New(s.key, jwt.HeaderTypeAccessToken, claims)
+	if err != nil {
+		s.writeTokenError(w, err)
+		return
+	}
+
+	resp := tokenResponse{
+		AccessToken: accessToken,
+		TokenType:   "Bearer",
+		ExpiresIn:   int(s.accessTokenLifetime.Seconds()),
+		Scope:       scope,
+	}
+
+	// RFC 6749 §5.1 requires Cache-Control and Pragma headers to be set in responses that contain tokens or sensitive information
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	s.writeJSON(w, http.StatusOK, resp)
 }

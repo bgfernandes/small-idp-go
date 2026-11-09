@@ -2,16 +2,24 @@ package httpapi
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bgfernandes/small-idp-go/internal/client"
+	"github.com/bgfernandes/small-idp-go/internal/jwk"
+	"github.com/bgfernandes/small-idp-go/internal/jwt"
 )
 
 func TestTokenWrongMethod(t *testing.T) {
@@ -476,16 +484,555 @@ func TestTokenInvalidResource(t *testing.T) {
 	}
 }
 
-// TODO: success test cases:
-// body credentials,
-// header credentials,
-// client_id in both places,
-// percent-encoded Basic client_id decoded,
-// default scope,
-// de-duplicated scope,
-// scope order,
-// default resource,
-// de-duplicated resource,
-// multiple resources,
-// resource= with an empty value
-// resource= with an empty value along with a valid value
+func getPublicKeyFromJWKS(t *testing.T, apiServer *Server) (*ecdsa.PublicKey, string) {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodGet, "/jwks", nil)
+	rec := httptest.NewRecorder()
+	apiServer.Routes().ServeHTTP(rec, req)
+
+	var jwks jwk.Set
+	err := json.NewDecoder(rec.Body).Decode(&jwks)
+	if err != nil {
+		t.Fatalf("failed to decode jwks: %v", err)
+	}
+
+	if len(jwks.Keys) == 0 {
+		t.Fatalf("got 0 keys in jwks")
+	}
+
+	jwk := jwks.Keys[0]
+	x, err := base64.RawURLEncoding.DecodeString(jwk.X)
+	if err != nil {
+		t.Fatalf("failed to decode x: %v", err)
+	}
+	y, err := base64.RawURLEncoding.DecodeString(jwk.Y)
+	if err != nil {
+		t.Fatalf("failed to decode y: %v", err)
+	}
+
+	pubKey, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), append([]byte{0x04}, append(x, y...)...))
+	if err != nil {
+		t.Fatalf("failed to parse public key: %v", err)
+	}
+
+	return pubKey, jwk.KID
+}
+
+func verifyAndDecodeAccessToken(
+	t *testing.T,
+	accessToken string,
+	publicKey *ecdsa.PublicKey,
+) (header jwt.Header, claims jwt.AccessTokenClaims) {
+	t.Helper()
+
+	parts := strings.Split(accessToken, ".")
+	if len(parts) != 3 {
+		t.Fatalf("got %d parts in access token, want 3", len(parts))
+	}
+
+	// Verify the signature
+	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil {
+		t.Fatalf("failed to decode signature: %v", err)
+	}
+
+	if len(signature) != 64 {
+		t.Fatalf("got %d bytes in signature, want 64", len(signature))
+	}
+
+	digest := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
+	var r, s big.Int
+	r.SetBytes(signature[0:32])
+	s.SetBytes(signature[32:64])
+	if !ecdsa.Verify(publicKey, digest[:], &r, &s) {
+		t.Errorf("failed to verify signature")
+	}
+
+	// Decode and unmarshal the header
+	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		t.Fatalf("failed to decode access token header: %v", err)
+	}
+
+	err = json.Unmarshal(headerBytes, &header)
+	if err != nil {
+		t.Fatalf("failed to unmarshal access token header: %v", err)
+	}
+
+	// Decode and unmarshal the claims
+	claimsBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("failed to decode access token claims: %v", err)
+	}
+
+	err = json.Unmarshal(claimsBytes, &claims)
+	if err != nil {
+		t.Fatalf("failed to unmarshal access token claims: %v", err)
+	}
+
+	return header, claims
+}
+
+func TestTokenClientCredentialsSuccess(t *testing.T) {
+	t.Parallel()
+
+	c := client.Client{
+		ID:         "client",
+		Audiences:  []string{"resource1", "resource2"},
+		GrantTypes: []client.GrantType{client.GrantTypeClientCredentials},
+		Scopes:     []string{"scope1", "scope2"},
+	}
+	now := time.Now()
+	accessTokenLifetime := 10 * time.Minute
+
+	apiServer, _ := newTestServer(t, testServerOptions{
+		accessTokenLifetime: accessTokenLifetime,
+		clientAuthenticator: &fakeClientAuthenticator{
+			authenticate: func(ctx context.Context, clientID, clientSecret string) (client.Client, error) {
+				if clientID != "client" || clientSecret != "secret" {
+					return client.Client{}, client.ErrUnknownClientOrWrongSecret
+				}
+				return c, nil
+			},
+		},
+		now: func() time.Time {
+			return now
+		},
+	})
+
+	publicKey, kid := getPublicKeyFromJWKS(t, apiServer)
+
+	tests := []struct {
+		name       string
+		authHeader string
+		body       string
+		wantAud    []string
+		wantScope  string
+	}{
+		{
+			name: "body credentials",
+			body: url.Values{
+				"grant_type":    {"client_credentials"},
+				"resource":      {"resource1", "resource2"},
+				"scope":         {"scope1 scope2"},
+				"client_id":     {"client"},
+				"client_secret": {"secret"},
+			}.Encode(),
+			wantAud:   []string{"resource1", "resource2"},
+			wantScope: "scope1 scope2",
+		},
+		{
+			name:       "header credentials",
+			authHeader: basicAuth("client", "secret"),
+			body: url.Values{
+				"grant_type": {"client_credentials"},
+				"resource":   {"resource1", "resource2"},
+				"scope":      {"scope1 scope2"},
+			}.Encode(),
+			wantAud:   []string{"resource1", "resource2"},
+			wantScope: "scope1 scope2",
+		},
+		{
+			name:       "client_id in body and header, same value",
+			authHeader: basicAuth("client", "secret"),
+			body: url.Values{
+				"grant_type": {"client_credentials"},
+				"resource":   {"resource1", "resource2"},
+				"scope":      {"scope1 scope2"},
+				"client_id":  {"client"},
+			}.Encode(),
+			wantAud:   []string{"resource1", "resource2"},
+			wantScope: "scope1 scope2",
+		},
+		{
+			name:       "default scope and resources",
+			authHeader: basicAuth("client", "secret"),
+			body: url.Values{
+				"grant_type": {"client_credentials"},
+				"client_id":  {"client"},
+			}.Encode(),
+			wantAud:   []string{"resource1", "resource2"},
+			wantScope: "scope1 scope2",
+		},
+		{
+			name:       "duplicate scope",
+			authHeader: basicAuth("client", "secret"),
+			body: url.Values{
+				"grant_type": {"client_credentials"},
+				"client_id":  {"client"},
+				"scope":      {"scope1 scope1"},
+			}.Encode(),
+			wantAud:   []string{"resource1", "resource2"},
+			wantScope: "scope1",
+		},
+		{
+			name:       "scope order",
+			authHeader: basicAuth("client", "secret"),
+			body: url.Values{
+				"grant_type": {"client_credentials"},
+				"client_id":  {"client"},
+				"scope":      {"scope2 scope1"},
+			}.Encode(),
+			wantAud:   []string{"resource1", "resource2"},
+			wantScope: "scope2 scope1",
+		},
+		{
+			name:       "resource with an empty value",
+			authHeader: basicAuth("client", "secret"),
+			body: url.Values{
+				"grant_type": {"client_credentials"},
+				"client_id":  {"client"},
+				"resource":   {""},
+			}.Encode(),
+			wantAud:   []string{"resource1", "resource2"},
+			wantScope: "scope1 scope2",
+		},
+		{
+			name:       "resource with an empty value along with a valid value",
+			authHeader: basicAuth("client", "secret"),
+			body: url.Values{
+				"grant_type": {"client_credentials"},
+				"client_id":  {"client"},
+				"resource":   {"", "resource1"},
+			}.Encode(),
+			wantAud:   []string{"resource1"},
+			wantScope: "scope1 scope2",
+		},
+		{
+			name:       "duplicate resource",
+			authHeader: basicAuth("client", "secret"),
+			body: url.Values{
+				"grant_type": {"client_credentials"},
+				"client_id":  {"client"},
+				"resource":   {"resource1", "resource1"},
+			}.Encode(),
+			wantAud:   []string{"resource1"},
+			wantScope: "scope1 scope2",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
+			if tt.authHeader != "" {
+				req.Header.Set("Authorization", tt.authHeader)
+			}
+
+			rec := httptest.NewRecorder()
+			apiServer.Routes().ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Errorf("got code %d, want %d", rec.Code, http.StatusOK)
+			}
+
+			if rec.Header().Get("Content-Type") != "application/json" {
+				t.Errorf("got Content-Type header %q, want %q", rec.Header().Get("Content-Type"), "application/json")
+			}
+			if rec.Header().Get("Cache-Control") != "no-store" {
+				t.Errorf("got Cache-Control header %q, want %q", rec.Header().Get("Cache-Control"), "no-store")
+			}
+			if rec.Header().Get("Pragma") != "no-cache" {
+				t.Errorf("got Pragma header %q, want %q", rec.Header().Get("Pragma"), "no-cache")
+			}
+
+			var got tokenResponse
+			err := json.NewDecoder(rec.Body).Decode(&got)
+			if err != nil {
+				t.Fatalf("failed to decode response: %v", err)
+			}
+
+			if got.TokenType != "Bearer" {
+				t.Errorf("got token type %q, want %q", got.TokenType, "Bearer")
+			}
+			if got.ExpiresIn != int(accessTokenLifetime.Seconds()) {
+				t.Errorf("got expires in %d, want %d", got.ExpiresIn, int(accessTokenLifetime.Seconds()))
+			}
+			if got.Scope != tt.wantScope {
+				t.Errorf("got scope %q, want %q", got.Scope, tt.wantScope)
+			}
+
+			header, claims := verifyAndDecodeAccessToken(t, got.AccessToken, publicKey)
+
+			// Verify the header
+			if header.Typ != jwt.HeaderTypeAccessToken {
+				t.Errorf("got header type %q, want %q", header.Typ, jwt.HeaderTypeAccessToken)
+			}
+			if header.KID != kid {
+				t.Errorf("got header KID %q, want %q", header.KID, kid)
+			}
+			if header.Alg != "ES256" {
+				t.Errorf("got header algorithm %q, want %q", header.Alg, "ES256")
+			}
+
+			// Verify the claims
+			if claims.Iss != apiServer.issuer {
+				t.Errorf("got claims issuer %q, want %q", claims.Iss, apiServer.issuer)
+			}
+			if claims.Sub != c.ID {
+				t.Errorf("got claims subject %q, want %q", claims.Sub, c.ID)
+			}
+			if !slices.Equal(claims.Aud, tt.wantAud) {
+				t.Errorf("got claims audience %q, want %q", claims.Aud, tt.wantAud)
+			}
+			if claims.Exp != now.Add(accessTokenLifetime).Unix() {
+				t.Errorf("got claims expiration time %d, want %d", claims.Exp, now.Add(accessTokenLifetime).Unix())
+			}
+			if claims.Iat != now.Unix() {
+				t.Errorf("got claims issued at %d, want %d", claims.Iat, now.Unix())
+			}
+			if claims.Jti == "" {
+				t.Errorf("got claims JTI empty")
+			}
+			if claims.ClientID != c.ID {
+				t.Errorf("got claims client ID %q, want %q", claims.ClientID, c.ID)
+			}
+			if claims.Scope != tt.wantScope {
+				t.Errorf("got claims scope %q, want %q", claims.Scope, tt.wantScope)
+			}
+		})
+	}
+}
+
+func TestTokenClientCredentialsExactKeys(t *testing.T) {
+	t.Parallel()
+
+	c := client.Client{
+		ID:         "client",
+		Audiences:  []string{"resource1", "resource2"},
+		GrantTypes: []client.GrantType{client.GrantTypeClientCredentials},
+		Scopes:     []string{"scope1", "scope2"},
+	}
+
+	apiServer, _ := newTestServer(t, testServerOptions{
+		clientAuthenticator: &fakeClientAuthenticator{
+			authenticate: func(ctx context.Context, clientID, clientSecret string) (client.Client, error) {
+				return c, nil
+			},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(url.Values{
+		"grant_type": {"client_credentials"},
+		"resource":   {"resource1", "resource2"},
+		"scope":      {"scope1 scope2"},
+	}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
+	req.Header.Set("Authorization", basicAuth("client", "secret"))
+
+	rec := httptest.NewRecorder()
+	apiServer.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("got code %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var got map[string]json.RawMessage
+	err := json.NewDecoder(rec.Body).Decode(&got)
+	if err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(got) != 4 {
+		t.Errorf("got %d keys, want 4", len(got))
+	}
+
+	wantResponseKeys := []string{
+		"access_token",
+		"token_type",
+		"expires_in",
+		"scope",
+	}
+	for _, key := range wantResponseKeys {
+		if _, ok := got[key]; !ok {
+			t.Errorf("missing key %q", key)
+		}
+	}
+
+	var accessToken string
+	err = json.Unmarshal(got["access_token"], &accessToken)
+	if err != nil {
+		t.Fatalf("failed to unmarshal access token: %v", err)
+	}
+
+	parts := strings.Split(accessToken, ".")
+	if len(parts) != 3 {
+		t.Fatalf("got %d parts in access token, want 3", len(parts))
+	}
+
+	// Decode and unmarshal the header
+	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		t.Fatalf("failed to decode access token header: %v", err)
+	}
+
+	var header map[string]json.RawMessage
+	err = json.Unmarshal(headerBytes, &header)
+	if err != nil {
+		t.Fatalf("failed to unmarshal access token header: %v", err)
+	}
+
+	if len(header) != 3 {
+		t.Errorf("got %d keys in header, want 3", len(header))
+	}
+
+	wantHeaderKeys := []string{
+		"typ",
+		"alg",
+		"kid",
+	}
+	for _, key := range wantHeaderKeys {
+		if _, ok := header[key]; !ok {
+			t.Errorf("missing key %q", key)
+		}
+	}
+
+	// Decode and unmarshal the claims
+	claimsBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("failed to decode access token claims: %v", err)
+	}
+
+	var claims map[string]json.RawMessage
+	err = json.Unmarshal(claimsBytes, &claims)
+	if err != nil {
+		t.Fatalf("failed to unmarshal access token claims: %v", err)
+	}
+
+	if len(claims) != 8 {
+		t.Errorf("got %d keys in claims, want 8", len(claims))
+	}
+
+	wantClaimsKeys := []string{
+		"iss", "sub", "aud", "exp", "iat", "jti", "client_id", "scope",
+	}
+	for _, key := range wantClaimsKeys {
+		if _, ok := claims[key]; !ok {
+			t.Errorf("missing key %q", key)
+		}
+	}
+}
+
+func TestTokenClientCredentialsBasicEncoding(t *testing.T) {
+	t.Parallel()
+
+	c := client.Client{
+		ID:         "client",
+		Audiences:  []string{"resource1", "resource2"},
+		GrantTypes: []client.GrantType{client.GrantTypeClientCredentials},
+		Scopes:     []string{"scope1", "scope2"},
+	}
+
+	var gotClientID, gotClientSecret string
+	apiServer, _ := newTestServer(t, testServerOptions{
+		clientAuthenticator: &fakeClientAuthenticator{
+			authenticate: func(ctx context.Context, clientID, clientSecret string) (client.Client, error) {
+				gotClientID = clientID
+				gotClientSecret = clientSecret
+				return c, nil
+			},
+		},
+	})
+
+	const wantClientID = "client% :"
+	const wantClientSecret = "secret%zz"
+
+	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(url.Values{
+		"grant_type": {"client_credentials"},
+		"resource":   {"resource1", "resource2"},
+		"scope":      {"scope1 scope2"},
+	}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
+	req.Header.Set("Authorization", basicAuth(
+		url.QueryEscape(wantClientID),
+		url.QueryEscape(wantClientSecret),
+	))
+
+	rec := httptest.NewRecorder()
+	apiServer.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("got code %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	if gotClientID != wantClientID {
+		t.Errorf("got client ID %q, want %q", gotClientID, wantClientID)
+	}
+	if gotClientSecret != wantClientSecret {
+		t.Errorf("got client secret %q, want %q", gotClientSecret, wantClientSecret)
+	}
+}
+
+func TestTokenClientCredentialsClientWithNoScope(t *testing.T) {
+	t.Parallel()
+
+	c := client.Client{
+		ID:         "client",
+		Audiences:  []string{"resource1", "resource2"},
+		GrantTypes: []client.GrantType{client.GrantTypeClientCredentials},
+		Scopes:     []string{},
+	}
+
+	apiServer, _ := newTestServer(t, testServerOptions{
+		clientAuthenticator: &fakeClientAuthenticator{
+			authenticate: func(ctx context.Context, clientID, clientSecret string) (client.Client, error) {
+				return c, nil
+			},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(url.Values{
+		"grant_type": {"client_credentials"},
+		"resource":   {"resource1", "resource2"},
+		"scope":      {""}, // empty scope in the request should be ignored
+	}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
+	req.Header.Set("Authorization", basicAuth("client", "secret"))
+
+	rec := httptest.NewRecorder()
+	apiServer.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("got code %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var got map[string]json.RawMessage
+	err := json.NewDecoder(rec.Body).Decode(&got)
+	if err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if _, ok := got["scope"]; ok {
+		t.Errorf("got scope key, want none")
+	}
+
+	var accessToken string
+	err = json.Unmarshal(got["access_token"], &accessToken)
+	if err != nil {
+		t.Fatalf("failed to unmarshal access token: %v", err)
+	}
+
+	parts := strings.Split(accessToken, ".")
+	if len(parts) != 3 {
+		t.Fatalf("got %d parts in access token, want 3", len(parts))
+	}
+
+	// Decode and unmarshal the claims
+	claimsBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("failed to decode access token claims: %v", err)
+	}
+
+	var claims map[string]json.RawMessage
+	err = json.Unmarshal(claimsBytes, &claims)
+	if err != nil {
+		t.Fatalf("failed to unmarshal access token claims: %v", err)
+	}
+
+	if _, ok := claims["scope"]; ok {
+		t.Errorf("got scope key in claims, want none")
+	}
+}
