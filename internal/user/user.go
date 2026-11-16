@@ -33,3 +33,6 @@ func (e *InvalidUserError) Error() string {
 
 // ErrNotFound is returned when a user is not found.
 var ErrNotFound = errors.New("user not found")
+
+// ErrUnknownUserOrWrongPassword is returned when a user is not found or the password is wrong.
+var ErrUnknownUserOrWrongPassword = errors.New("unknown user or wrong password")

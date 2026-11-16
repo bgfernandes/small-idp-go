@@ -16,13 +16,14 @@ import (
 
 // UserStore is a store for users.
 type UserStore struct {
-	db               *sql.DB
-	passwordHashCost int
+	db                *sql.DB
+	passwordHashCost  int
+	dummyPasswordHash string
 }
 
 // DefaultPasswordHashCost is the cost for the bcrypt password hash used in production when creating
-// a new user, (in the future) re-hashing a user's password on login, or (in the future) doing a
-// dummy comparison to mitigate timing attacks on password verification.
+// a new user, (in the future) re-hashing a user's password on login, or doing a dummy comparison to
+// mitigate timing attacks on password verification.
 // For production, this value should be changed deliberately, and upward, as hardware gets faster.
 // It is a constant here because it does not need to be tuned per deployment.
 const DefaultPasswordHashCost = 12
@@ -35,7 +36,20 @@ func NewUserStore(db *sql.DB, passwordHashCost int) *UserStore {
 	if passwordHashCost < bcrypt.MinCost || passwordHashCost > bcrypt.MaxCost {
 		panic("postgres: passwordHashCost must be between bcrypt.MinCost and bcrypt.MaxCost")
 	}
-	return &UserStore{db: db, passwordHashCost: passwordHashCost}
+
+	dummyPasswordHash, err := bcrypt.GenerateFromPassword(
+		[]byte("dummy password"),
+		passwordHashCost,
+	)
+	if err != nil {
+		panic(fmt.Sprintf("postgres: failed to generate dummy password hash: %v", err))
+	}
+
+	return &UserStore{
+		db:                db,
+		passwordHashCost:  passwordHashCost,
+		dummyPasswordHash: string(dummyPasswordHash),
+	}
 }
 
 const userColumns = "id, email, password_hash, created_at, updated_at"
@@ -144,6 +158,39 @@ func (s *UserStore) Get(ctx context.Context, userID string) (user.User, error) {
 			return user.User{}, user.ErrNotFound
 		}
 		return user.User{}, fmt.Errorf("get user: %w", err)
+	}
+
+	return u, nil
+}
+
+// Authenticate authenticates a user by their email and password.
+func (s *UserStore) Authenticate(
+	ctx context.Context,
+	email, password string,
+) (user.User, error) {
+	query := `
+		SELECT ` + userColumns + `
+		FROM users
+		WHERE lower(email) = lower($1)
+	`
+	u, passwordHash, err := scanUser(s.db.QueryRowContext(ctx, query, email))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// If no user is found, do a dummy comparison to keep similar time to mitigate against
+			// timing attacks.
+			_ = bcrypt.CompareHashAndPassword([]byte(s.dummyPasswordHash), []byte(password))
+
+			return user.User{}, user.ErrUnknownUserOrWrongPassword
+		}
+		return user.User{}, fmt.Errorf("authenticate user: %w", err)
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password))
+	if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+		return user.User{}, user.ErrUnknownUserOrWrongPassword
+	}
+	if err != nil {
+		return user.User{}, fmt.Errorf("authenticate user: %w", err)
 	}
 
 	return u, nil

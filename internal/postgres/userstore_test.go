@@ -281,3 +281,152 @@ func TestUserStoreCreateUserWithDuplicateEmail(t *testing.T) {
 		t.Fatalf("got invalid error %+v, want %+v", invalid, wantInvalidError)
 	}
 }
+
+func TestUserStoreAuthenticate(t *testing.T) {
+	t.Parallel()
+
+	db := pgtest.CreateTestDatabaseAndRunMigrations(t, testDatabasePrefix)
+
+	store := postgres.NewUserStore(db, bcrypt.MinCost)
+
+	u, err := store.Create(t.Context(), user.CreateParams{
+		Email:    "test@example.com",
+		Password: "password",
+	})
+	if err != nil {
+		t.Fatalf("got error %v, want nil", err)
+	}
+
+	tests := []struct {
+		name  string
+		email string
+	}{
+		{
+			name:  "case equal email",
+			email: "test@example.com",
+		},
+		{
+			name:  "case insensitive email",
+			email: "TEST@example.com",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			authenticatedUser, err := store.Authenticate(t.Context(), tt.email, "password")
+			if err != nil {
+				t.Fatalf("got error %v, want nil", err)
+			}
+			if !reflect.DeepEqual(authenticatedUser, u) {
+				t.Fatalf("got authenticated user %+v, want %+v", authenticatedUser, u)
+			}
+
+			gotUser, err := store.Get(t.Context(), u.ID)
+			if err != nil {
+				t.Fatalf("got error %v, want nil", err)
+			}
+			if !reflect.DeepEqual(gotUser, authenticatedUser) {
+				t.Fatalf("got user from get %+v, want %+v", gotUser, authenticatedUser)
+			}
+		})
+	}
+}
+
+func TestUserStoreAuthenticateUnknownUserOrWrongPassword(t *testing.T) {
+	t.Parallel()
+
+	db := pgtest.CreateTestDatabaseAndRunMigrations(t, testDatabasePrefix)
+
+	store := postgres.NewUserStore(db, bcrypt.MinCost)
+
+	userA, err := store.Create(t.Context(), user.CreateParams{
+		Email:    "user-a@example.com",
+		Password: "user-a-password",
+	})
+	if err != nil {
+		t.Fatalf("got error %v, want nil", err)
+	}
+
+	_, err = store.Create(t.Context(), user.CreateParams{
+		Email:    "user-b@example.com",
+		Password: "user-b-password",
+	})
+	if err != nil {
+		t.Fatalf("got error %v, want nil", err)
+	}
+
+	tests := []struct {
+		name     string
+		email    string
+		password string
+	}{
+		{
+			name:     "unknown user",
+			email:    "unknown-user@example.com",
+			password: "unknown-password",
+		},
+		{
+			name:     "wrong password",
+			email:    userA.Email,
+			password: "wrong-password",
+		},
+		{
+			name:     "empty password",
+			email:    userA.Email,
+			password: "",
+		},
+		{
+			name:     "another user's password",
+			email:    userA.Email,
+			password: "user-b-password",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := store.Authenticate(t.Context(), tt.email, tt.password)
+			if !errors.Is(err, user.ErrUnknownUserOrWrongPassword) {
+				t.Fatalf("got error %v, want %v", err, user.ErrUnknownUserOrWrongPassword)
+			}
+		})
+	}
+}
+
+func TestUserStoreAuthenticateMalformedPasswordHash(t *testing.T) {
+	t.Parallel()
+
+	db := pgtest.CreateTestDatabaseAndRunMigrations(t, testDatabasePrefix)
+
+	store := postgres.NewUserStore(db, bcrypt.MinCost)
+
+	u, err := store.Create(t.Context(), user.CreateParams{
+		Email:    "test@example.com",
+		Password: "password",
+	})
+	if err != nil {
+		t.Fatalf("got error %v, want nil", err)
+	}
+
+	// update the password hash to a malformed one
+	query := `
+		UPDATE users
+		SET password_hash = 'malformed-password-hash'
+		WHERE id = $1
+	`
+	_, err = db.ExecContext(t.Context(), query, u.ID)
+	if err != nil {
+		t.Fatalf("got error %v, want nil", err)
+	}
+
+	_, err = store.Authenticate(t.Context(), u.Email, "password")
+	if err == nil {
+		t.Fatalf("got error nil, want error")
+	}
+	if errors.Is(err, user.ErrUnknownUserOrWrongPassword) {
+		t.Fatalf("got error %v, don't want %v", err, user.ErrUnknownUserOrWrongPassword)
+	}
+}
