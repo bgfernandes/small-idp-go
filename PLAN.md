@@ -168,6 +168,8 @@ Record: `id` is `text`, generated with `crypto/rand.Text` like the client ID, an
 
 `email` has a unique index on `lower(email)`, so login looks the email up case-insensitively and the SQLSTATE 23505 violation becomes `InvalidUserError` as with client names.
 
+Email validation is deliberately minimal: non-empty, exactly one `@`, no whitespace. Anything stricter waits for a registration flow, where the real check is a confirmation mail, not a longer regex. The password policy is non-empty and at most 72 bytes, bcrypt's limit, for the same reason.
+
 Passwords are hashed with `golang.org/x/crypto/bcrypt`, allowed as the one exception beyond the driver and the migration tool: it is maintained by the Go team and bcrypt is the baseline interviewers expect; `crypto/pbkdf2` is in the standard library since Go 1.24 but needs a hand-rolled storage format and is weaker per CPU unit against GPU attackers.
 
 The cost is injected through the store constructor so integration tests run at `bcrypt.MinCost`. The password byte length is checked against bcrypt's 72-byte limit in `Create`, returning `InvalidUserError` rather than the library's `ErrPasswordTooLong`.
