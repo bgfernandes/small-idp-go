@@ -25,7 +25,8 @@ type Key struct {
 	privateKey *ecdsa.PrivateKey
 }
 
-// PublicKey is the JWK representation (RFC 7517 §4, RFC 7518 §6.2) of a public key, as published in the JWKS.
+// PublicKey is the JWK representation (RFC 7517 §4, RFC 7518 §6.2) of a public key, as published
+// in the JWKS.
 type PublicKey struct {
 	Alg string `json:"alg"`
 	Crv string `json:"crv"`
@@ -65,7 +66,8 @@ func (k *Key) Sign(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("sign: %w", err)
 	}
 
-	// the signature is the concatenation of the R and S values, each 32 bytes long, as per RFC 7518 §3.4
+	// the signature is the concatenation of the R and S values, each 32 bytes long, as per RFC 7518
+	// §3.4
 	return append(r.FillBytes(make([]byte, 32)), s.FillBytes(make([]byte, 32))...), nil
 }
 

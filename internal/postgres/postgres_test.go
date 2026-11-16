@@ -44,7 +44,10 @@ func TestRunMigrations(t *testing.T) {
 
 func TestOpenBadDatabaseURL(t *testing.T) {
 	// a bad database URL should error
-	db, err := postgres.Open(t.Context(), "postgresql://smallidp:smallidp@localhost:5432/nonexistent")
+	db, err := postgres.Open(
+		t.Context(),
+		"postgresql://smallidp:smallidp@localhost:5432/nonexistent",
+	)
 	if err == nil {
 		t.Fatalf("Expected error, got nil")
 	}

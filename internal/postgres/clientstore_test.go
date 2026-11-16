@@ -150,10 +150,13 @@ func TestClientStoreCreateInvalidParams(t *testing.T) {
 		{
 			name: "duplicate grant types",
 			params: client.CreateParams{
-				Audiences:  []string{"https://example.com"},
-				GrantTypes: []client.GrantType{client.GrantTypeClientCredentials, client.GrantTypeClientCredentials},
-				Name:       "test-client",
-				Scopes:     []string{"openid"},
+				Audiences: []string{"https://example.com"},
+				GrantTypes: []client.GrantType{
+					client.GrantTypeClientCredentials,
+					client.GrantTypeClientCredentials,
+				},
+				Name:   "test-client",
+				Scopes: []string{"openid"},
 			},
 			wantInvalidError: &client.InvalidClientError{
 				Field:  "GrantTypes",

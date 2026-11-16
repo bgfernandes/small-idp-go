@@ -16,7 +16,10 @@ type fakeClientAuthenticator struct {
 	authenticate func(ctx context.Context, clientID, clientSecret string) (client.Client, error)
 }
 
-func (f *fakeClientAuthenticator) Authenticate(ctx context.Context, clientID, clientSecret string) (client.Client, error) {
+func (f *fakeClientAuthenticator) Authenticate(
+	ctx context.Context,
+	clientID, clientSecret string,
+) (client.Client, error) {
 	return f.authenticate(ctx, clientID, clientSecret)
 }
 
@@ -48,7 +51,11 @@ func TestNewServerIssuerValidation(t *testing.T) {
 		{name: "issuer with query", issuer: "http://idp.example.com?x=1", wantErr: true},
 		{name: "issuer with fragment", issuer: "http://idp.example.com#x=1", wantErr: true},
 		{name: "issuer with trailing slash", issuer: "http://idp.example.com/", wantErr: true},
-		{name: "issuer with path and trailing slash", issuer: "http://idp.example.com/tenant/", wantErr: true},
+		{
+			name:    "issuer with path and trailing slash",
+			issuer:  "http://idp.example.com/tenant/",
+			wantErr: true,
+		},
 		{name: "issuer with trailing ?", issuer: "http://idp.example.com?", wantErr: true},
 		{name: "issuer with trailing #", issuer: "http://idp.example.com#", wantErr: true},
 	}
@@ -92,13 +99,69 @@ func TestNewServerRequiredDependencies(t *testing.T) {
 		now                 func() time.Time
 		wantErr             bool
 	}{
-		{name: "zero access token lifetime", accessTokenLifetime: 0, clientAuthenticator: clientAuthenticator, key: key, log: log, now: time.Now, wantErr: true},
-		{name: "negative access token lifetime", accessTokenLifetime: -1 * time.Second, clientAuthenticator: clientAuthenticator, key: key, log: log, now: time.Now, wantErr: true},
-		{name: "nil clientAuthenticator", accessTokenLifetime: 5 * time.Minute, clientAuthenticator: nil, key: key, log: log, now: time.Now, wantErr: true},
-		{name: "nil key", accessTokenLifetime: 5 * time.Minute, clientAuthenticator: clientAuthenticator, key: nil, log: log, now: time.Now, wantErr: true},
-		{name: "nil logger", accessTokenLifetime: 5 * time.Minute, clientAuthenticator: clientAuthenticator, key: key, log: nil, now: time.Now, wantErr: true},
-		{name: "nil now function", accessTokenLifetime: 5 * time.Minute, clientAuthenticator: clientAuthenticator, key: key, log: log, now: nil, wantErr: true},
-		{name: "valid config", accessTokenLifetime: 5 * time.Minute, clientAuthenticator: clientAuthenticator, key: key, log: log, now: time.Now, wantErr: false},
+		{
+			name:                "zero access token lifetime",
+			accessTokenLifetime: 0,
+			clientAuthenticator: clientAuthenticator,
+			key:                 key,
+			log:                 log,
+			now:                 time.Now,
+			wantErr:             true,
+		},
+		{
+			name:                "negative access token lifetime",
+			accessTokenLifetime: -1 * time.Second,
+			clientAuthenticator: clientAuthenticator,
+			key:                 key,
+			log:                 log,
+			now:                 time.Now,
+			wantErr:             true,
+		},
+		{
+			name:                "nil clientAuthenticator",
+			accessTokenLifetime: 5 * time.Minute,
+			clientAuthenticator: nil,
+			key:                 key,
+			log:                 log,
+			now:                 time.Now,
+			wantErr:             true,
+		},
+		{
+			name:                "nil key",
+			accessTokenLifetime: 5 * time.Minute,
+			clientAuthenticator: clientAuthenticator,
+			key:                 nil,
+			log:                 log,
+			now:                 time.Now,
+			wantErr:             true,
+		},
+		{
+			name:                "nil logger",
+			accessTokenLifetime: 5 * time.Minute,
+			clientAuthenticator: clientAuthenticator,
+			key:                 key,
+			log:                 nil,
+			now:                 time.Now,
+			wantErr:             true,
+		},
+		{
+			name:                "nil now function",
+			accessTokenLifetime: 5 * time.Minute,
+			clientAuthenticator: clientAuthenticator,
+			key:                 key,
+			log:                 log,
+			now:                 nil,
+			wantErr:             true,
+		},
+		{
+			name:                "valid config",
+			accessTokenLifetime: 5 * time.Minute,
+			clientAuthenticator: clientAuthenticator,
+			key:                 key,
+			log:                 log,
+			now:                 time.Now,
+			wantErr:             false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -180,10 +243,38 @@ func TestWriteJSON(t *testing.T) {
 		wantContentType string
 		wantBody        string
 	}{
-		{name: "ok", code: http.StatusOK, body: "some string", wantCode: http.StatusOK, wantContentType: "application/json", wantBody: `"some string"`},
-		{name: "created", code: http.StatusCreated, body: "some string", wantCode: http.StatusCreated, wantContentType: "application/json", wantBody: `"some string"`},
-		{name: "internal server error", code: http.StatusInternalServerError, body: "some string", wantCode: http.StatusInternalServerError, wantContentType: "application/json", wantBody: `"some string"`},
-		{name: "marshal error", code: http.StatusOK, body: make(chan int), wantCode: http.StatusInternalServerError, wantContentType: "text/plain; charset=utf-8", wantBody: "Internal Server Error\n"},
+		{
+			name:            "ok",
+			code:            http.StatusOK,
+			body:            "some string",
+			wantCode:        http.StatusOK,
+			wantContentType: "application/json",
+			wantBody:        `"some string"`,
+		},
+		{
+			name:            "created",
+			code:            http.StatusCreated,
+			body:            "some string",
+			wantCode:        http.StatusCreated,
+			wantContentType: "application/json",
+			wantBody:        `"some string"`,
+		},
+		{
+			name:            "internal server error",
+			code:            http.StatusInternalServerError,
+			body:            "some string",
+			wantCode:        http.StatusInternalServerError,
+			wantContentType: "application/json",
+			wantBody:        `"some string"`,
+		},
+		{
+			name:            "marshal error",
+			code:            http.StatusOK,
+			body:            make(chan int),
+			wantCode:        http.StatusInternalServerError,
+			wantContentType: "text/plain; charset=utf-8",
+			wantBody:        "Internal Server Error\n",
+		},
 	}
 
 	for _, tt := range tests {
@@ -194,15 +285,33 @@ func TestWriteJSON(t *testing.T) {
 
 			apiServer.writeJSON(rec, tt.code, tt.body)
 			if rec.Code != tt.wantCode {
-				t.Errorf("writeJSON(%d, %v) got code %d, want %d", tt.code, tt.body, rec.Code, tt.wantCode)
+				t.Errorf(
+					"writeJSON(%d, %v) got code %d, want %d",
+					tt.code,
+					tt.body,
+					rec.Code,
+					tt.wantCode,
+				)
 			}
 
 			if rec.Header().Get("Content-Type") != tt.wantContentType {
-				t.Errorf("writeJSON(%d, %v) got Content-Type %q, want %q", tt.code, tt.body, rec.Header().Get("Content-Type"), tt.wantContentType)
+				t.Errorf(
+					"writeJSON(%d, %v) got Content-Type %q, want %q",
+					tt.code,
+					tt.body,
+					rec.Header().Get("Content-Type"),
+					tt.wantContentType,
+				)
 			}
 
 			if rec.Body.String() != tt.wantBody {
-				t.Errorf("writeJSON(%d, %v) got body %q, want %q", tt.code, tt.body, rec.Body.String(), tt.wantBody)
+				t.Errorf(
+					"writeJSON(%d, %v) got body %q, want %q",
+					tt.code,
+					tt.body,
+					rec.Body.String(),
+					tt.wantBody,
+				)
 			}
 		})
 	}

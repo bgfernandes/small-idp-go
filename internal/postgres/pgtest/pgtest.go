@@ -42,7 +42,8 @@ func CreateTestDatabase(t *testing.T, prefix string) string {
 		}
 	}()
 
-	// Create database cannot take a parameter, testDatabaseName is a fixed prefix plus a lowercased base32 string, so it's safe to concatenate it with the query here
+	// Create database cannot take a parameter, testDatabaseName is a fixed prefix plus a lowercased
+	// base32 string, so it's safe to concatenate it with the query here
 	_, err = db.ExecContext(t.Context(), "CREATE DATABASE "+testDatabaseName)
 	if err != nil {
 		t.Fatalf("Exec create database: %v", err)
@@ -78,7 +79,8 @@ func CreateTestDatabase(t *testing.T, prefix string) string {
 	return u.String()
 }
 
-// CreateTestDatabaseAndRunMigrations creates a new test database, runs the migrations, and returns the *sql.DB.
+// CreateTestDatabaseAndRunMigrations creates a new test database, runs the migrations, and returns
+// the *sql.DB.
 func CreateTestDatabaseAndRunMigrations(t *testing.T, prefix string) *sql.DB {
 	t.Helper()
 
@@ -111,7 +113,11 @@ func DropStaleTestDatabases(ctx context.Context, prefix string) (err error) {
 	defer func() { err = errors.Join(err, db.Close()) }()
 
 	// drop all databases that start with the prefix
-	rows, err := db.QueryContext(ctx, "SELECT datname FROM pg_database WHERE STARTS_WITH(datname, $1)", prefix)
+	rows, err := db.QueryContext(
+		ctx,
+		"SELECT datname FROM pg_database WHERE STARTS_WITH(datname, $1)",
+		prefix,
+	)
 	if err != nil {
 		return fmt.Errorf("query: %w", err)
 	}

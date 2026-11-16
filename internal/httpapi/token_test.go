@@ -53,11 +53,19 @@ func TestTokenErrorFormat(t *testing.T) {
 	}
 
 	if rec.Header().Get("Content-Type") != "application/json" {
-		t.Errorf("got Content-Type header %q, want %q", rec.Header().Get("Content-Type"), "application/json")
+		t.Errorf(
+			"got Content-Type header %q, want %q",
+			rec.Header().Get("Content-Type"),
+			"application/json",
+		)
 	}
 
 	if rec.Header().Get("Cache-Control") != "no-store" {
-		t.Errorf("got Cache-Control header %q, want %q", rec.Header().Get("Cache-Control"), "no-store")
+		t.Errorf(
+			"got Cache-Control header %q, want %q",
+			rec.Header().Get("Cache-Control"),
+			"no-store",
+		)
 	}
 
 	if rec.Header().Get("Pragma") != "no-cache" {
@@ -83,7 +91,12 @@ func TestTokenErrorFormat(t *testing.T) {
 	}
 }
 
-func assertTokenError(t *testing.T, rec *httptest.ResponseRecorder, wantStatus int, wantError tokenErrorResponse) {
+func assertTokenError(
+	t *testing.T,
+	rec *httptest.ResponseRecorder,
+	wantStatus int,
+	wantError tokenErrorResponse,
+) {
 	t.Helper()
 
 	if rec.Code != wantStatus {
@@ -109,7 +122,12 @@ func TestWriteTokenErrorServerError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	apiServer.writeTokenError(rec, errors.New("some error"))
 
-	assertTokenError(t, rec, http.StatusInternalServerError, tokenErrorResponse{Error: "server_error", ErrorDescription: "internal server error"})
+	assertTokenError(
+		t,
+		rec,
+		http.StatusInternalServerError,
+		tokenErrorResponse{Error: "server_error", ErrorDescription: "internal server error"},
+	)
 }
 
 func TestTokenInvalidContentType(t *testing.T) {
@@ -123,7 +141,10 @@ func TestTokenInvalidContentType(t *testing.T) {
 		{name: "application/json", contentType: "application/json"},
 		{name: "text/plain", contentType: "text/plain"},
 		{name: "multipart/form-data", contentType: "multipart/form-data"},
-		{name: "application/x-www-form-urlencoded; charset", contentType: "application/x-www-form-urlencoded; charset"},
+		{
+			name:        "application/x-www-form-urlencoded; charset",
+			contentType: "application/x-www-form-urlencoded; charset",
+		},
 	}
 
 	for _, tt := range tests {
@@ -138,7 +159,15 @@ func TestTokenInvalidContentType(t *testing.T) {
 			rec := httptest.NewRecorder()
 			apiServer.Routes().ServeHTTP(rec, req)
 
-			assertTokenError(t, rec, http.StatusBadRequest, tokenErrorResponse{Error: "invalid_request", ErrorDescription: "invalid content-type"})
+			assertTokenError(
+				t,
+				rec,
+				http.StatusBadRequest,
+				tokenErrorResponse{
+					Error:            "invalid_request",
+					ErrorDescription: "invalid content-type",
+				},
+			)
 		})
 	}
 }
@@ -148,13 +177,22 @@ func TestTokenRequestBodyTooLarge(t *testing.T) {
 
 	apiServer, _ := newTestServer(t, testServerOptions{})
 
-	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(strings.Repeat("a", maxTokenRequestBytes+1)))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/token",
+		strings.NewReader(strings.Repeat("a", maxTokenRequestBytes+1)),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
 
 	rec := httptest.NewRecorder()
 	apiServer.Routes().ServeHTTP(rec, req)
 
-	assertTokenError(t, rec, http.StatusBadRequest, tokenErrorResponse{Error: "invalid_request", ErrorDescription: "request body too large"})
+	assertTokenError(
+		t,
+		rec,
+		http.StatusBadRequest,
+		tokenErrorResponse{Error: "invalid_request", ErrorDescription: "request body too large"},
+	)
 }
 
 func TestTokenInvalidFormEncoding(t *testing.T) {
@@ -168,7 +206,12 @@ func TestTokenInvalidFormEncoding(t *testing.T) {
 	rec := httptest.NewRecorder()
 	apiServer.Routes().ServeHTTP(rec, req)
 
-	assertTokenError(t, rec, http.StatusBadRequest, tokenErrorResponse{Error: "invalid_request", ErrorDescription: "invalid form encoding"})
+	assertTokenError(
+		t,
+		rec,
+		http.StatusBadRequest,
+		tokenErrorResponse{Error: "invalid_request", ErrorDescription: "invalid form encoding"},
+	)
 }
 
 func TestTokenRepeatedParameters(t *testing.T) {
@@ -176,13 +219,25 @@ func TestTokenRepeatedParameters(t *testing.T) {
 
 	apiServer, _ := newTestServer(t, testServerOptions{})
 
-	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader("client_secret=&client_secret=secret"))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/token",
+		strings.NewReader("client_secret=&client_secret=secret"),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
 
 	rec := httptest.NewRecorder()
 	apiServer.Routes().ServeHTTP(rec, req)
 
-	assertTokenError(t, rec, http.StatusBadRequest, tokenErrorResponse{Error: "invalid_request", ErrorDescription: "parameter client_secret included more than once"})
+	assertTokenError(
+		t,
+		rec,
+		http.StatusBadRequest,
+		tokenErrorResponse{
+			Error:            "invalid_request",
+			ErrorDescription: "parameter client_secret included more than once",
+		},
+	)
 }
 
 func TestTokenMultipleAuthenticationMethods(t *testing.T) {
@@ -190,14 +245,26 @@ func TestTokenMultipleAuthenticationMethods(t *testing.T) {
 
 	apiServer, _ := newTestServer(t, testServerOptions{})
 
-	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader("grant_type=client_credentials&client_secret=secret"))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/token",
+		strings.NewReader("grant_type=client_credentials&client_secret=secret"),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
 	req.Header.Set("Authorization", basicAuth("client", "secret"))
 
 	rec := httptest.NewRecorder()
 	apiServer.Routes().ServeHTTP(rec, req)
 
-	assertTokenError(t, rec, http.StatusBadRequest, tokenErrorResponse{Error: "invalid_request", ErrorDescription: "only one authentication method is allowed"})
+	assertTokenError(
+		t,
+		rec,
+		http.StatusBadRequest,
+		tokenErrorResponse{
+			Error:            "invalid_request",
+			ErrorDescription: "only one authentication method is allowed",
+		},
+	)
 }
 
 func TestTokenMissingClientID(t *testing.T) {
@@ -205,13 +272,22 @@ func TestTokenMissingClientID(t *testing.T) {
 
 	apiServer, _ := newTestServer(t, testServerOptions{})
 
-	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader("grant_type=client_credentials&client_secret=secret"))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/token",
+		strings.NewReader("grant_type=client_credentials&client_secret=secret"),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
 
 	rec := httptest.NewRecorder()
 	apiServer.Routes().ServeHTTP(rec, req)
 
-	assertTokenError(t, rec, http.StatusBadRequest, tokenErrorResponse{Error: "invalid_client", ErrorDescription: "client_id is required"})
+	assertTokenError(
+		t,
+		rec,
+		http.StatusBadRequest,
+		tokenErrorResponse{Error: "invalid_client", ErrorDescription: "client_id is required"},
+	)
 }
 
 func TestTokenMissingClientSecret(t *testing.T) {
@@ -219,13 +295,22 @@ func TestTokenMissingClientSecret(t *testing.T) {
 
 	apiServer, _ := newTestServer(t, testServerOptions{})
 
-	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader("grant_type=client_credentials&client_id=client"))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/token",
+		strings.NewReader("grant_type=client_credentials&client_id=client"),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
 
 	rec := httptest.NewRecorder()
 	apiServer.Routes().ServeHTTP(rec, req)
 
-	assertTokenError(t, rec, http.StatusBadRequest, tokenErrorResponse{Error: "invalid_client", ErrorDescription: "client_secret is required"})
+	assertTokenError(
+		t,
+		rec,
+		http.StatusBadRequest,
+		tokenErrorResponse{Error: "invalid_client", ErrorDescription: "client_secret is required"},
+	)
 }
 
 func basicAuth(username, password string) string {
@@ -252,7 +337,11 @@ func TestTokenInvalidAuthHeader(t *testing.T) {
 
 			apiServer, _ := newTestServer(t, testServerOptions{})
 
-			req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader("grant_type=client_credentials"))
+			req := httptest.NewRequest(
+				http.MethodPost,
+				"/token",
+				strings.NewReader("grant_type=client_credentials"),
+			)
 			req.Header.Set("Authorization", tt.authHeader)
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
 
@@ -260,10 +349,22 @@ func TestTokenInvalidAuthHeader(t *testing.T) {
 			apiServer.Routes().ServeHTTP(rec, req)
 
 			if rec.Header().Get("WWW-Authenticate") != basicChallenge {
-				t.Errorf("got WWW-Authenticate header %q, want %q", rec.Header().Get("WWW-Authenticate"), basicChallenge)
+				t.Errorf(
+					"got WWW-Authenticate header %q, want %q",
+					rec.Header().Get("WWW-Authenticate"),
+					basicChallenge,
+				)
 			}
 
-			assertTokenError(t, rec, http.StatusUnauthorized, tokenErrorResponse{Error: "invalid_client", ErrorDescription: "invalid authorization header"})
+			assertTokenError(
+				t,
+				rec,
+				http.StatusUnauthorized,
+				tokenErrorResponse{
+					Error:            "invalid_client",
+					ErrorDescription: "invalid authorization header",
+				},
+			)
 		})
 	}
 }
@@ -273,14 +374,23 @@ func TestTokenClientIDMismatch(t *testing.T) {
 
 	apiServer, _ := newTestServer(t, testServerOptions{})
 
-	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader("grant_type=client_credentials&client_id=client"))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/token",
+		strings.NewReader("grant_type=client_credentials&client_id=client"),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
 	req.SetBasicAuth("other-client", "secret")
 
 	rec := httptest.NewRecorder()
 	apiServer.Routes().ServeHTTP(rec, req)
 
-	assertTokenError(t, rec, http.StatusBadRequest, tokenErrorResponse{Error: "invalid_request", ErrorDescription: "client_id mismatch"})
+	assertTokenError(
+		t,
+		rec,
+		http.StatusBadRequest,
+		tokenErrorResponse{Error: "invalid_request", ErrorDescription: "client_id mismatch"},
+	)
 }
 
 func TestTokenInvalidClientCredentials(t *testing.T) {
@@ -305,10 +415,30 @@ func TestTokenInvalidClientCredentials(t *testing.T) {
 		wantStatus          int
 		wantWWWAuthenticate string
 	}{
-		{name: "basic with wrong client ID", authHeader: basicAuth("other-client", "secret"), wantStatus: http.StatusUnauthorized, wantWWWAuthenticate: basicChallenge},
-		{name: "basic with wrong secret", authHeader: basicAuth("client", "other-secret"), wantStatus: http.StatusUnauthorized, wantWWWAuthenticate: basicChallenge},
-		{name: "form with wrong client ID", formClientID: "other-client", formClientSecret: "secret", wantStatus: http.StatusBadRequest},
-		{name: "form with wrong secret", formClientID: "client", formClientSecret: "other-secret", wantStatus: http.StatusBadRequest},
+		{
+			name:                "basic with wrong client ID",
+			authHeader:          basicAuth("other-client", "secret"),
+			wantStatus:          http.StatusUnauthorized,
+			wantWWWAuthenticate: basicChallenge,
+		},
+		{
+			name:                "basic with wrong secret",
+			authHeader:          basicAuth("client", "other-secret"),
+			wantStatus:          http.StatusUnauthorized,
+			wantWWWAuthenticate: basicChallenge,
+		},
+		{
+			name:             "form with wrong client ID",
+			formClientID:     "other-client",
+			formClientSecret: "secret",
+			wantStatus:       http.StatusBadRequest,
+		},
+		{
+			name:             "form with wrong secret",
+			formClientID:     "client",
+			formClientSecret: "other-secret",
+			wantStatus:       http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {
@@ -330,9 +460,21 @@ func TestTokenInvalidClientCredentials(t *testing.T) {
 			apiServer.Routes().ServeHTTP(rec, req)
 
 			if rec.Header().Get("WWW-Authenticate") != tt.wantWWWAuthenticate {
-				t.Errorf("got WWW-Authenticate header %q, want %q", rec.Header().Get("WWW-Authenticate"), tt.wantWWWAuthenticate)
+				t.Errorf(
+					"got WWW-Authenticate header %q, want %q",
+					rec.Header().Get("WWW-Authenticate"),
+					tt.wantWWWAuthenticate,
+				)
 			}
-			assertTokenError(t, rec, tt.wantStatus, tokenErrorResponse{Error: "invalid_client", ErrorDescription: "invalid client credentials"})
+			assertTokenError(
+				t,
+				rec,
+				tt.wantStatus,
+				tokenErrorResponse{
+					Error:            "invalid_client",
+					ErrorDescription: "invalid client credentials",
+				},
+			)
 		})
 	}
 }
@@ -348,13 +490,22 @@ func TestTokenAuthenticatorError(t *testing.T) {
 		},
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader("grant_type=client_credentials&client_id=client&client_secret=secret"))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/token",
+		strings.NewReader("grant_type=client_credentials&client_id=client&client_secret=secret"),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
 
 	rec := httptest.NewRecorder()
 	apiServer.Routes().ServeHTTP(rec, req)
 
-	assertTokenError(t, rec, http.StatusInternalServerError, tokenErrorResponse{Error: "server_error", ErrorDescription: "internal server error"})
+	assertTokenError(
+		t,
+		rec,
+		http.StatusInternalServerError,
+		tokenErrorResponse{Error: "server_error", ErrorDescription: "internal server error"},
+	)
 }
 
 func TestTokenInvalidGrantType(t *testing.T) {
@@ -374,9 +525,24 @@ func TestTokenInvalidGrantType(t *testing.T) {
 		wantCode        string
 		wantDescription string
 	}{
-		{name: "missing grant type", grantType: "", wantCode: "invalid_request", wantDescription: "grant_type is required"},
-		{name: "unsupported grant type", grantType: "invalid", wantCode: "unsupported_grant_type", wantDescription: "unsupported grant_type"},
-		{name: "unauthorized grant type", grantType: "client_credentials", wantCode: "unauthorized_client", wantDescription: "unauthorized grant_type"},
+		{
+			name:            "missing grant type",
+			grantType:       "",
+			wantCode:        "invalid_request",
+			wantDescription: "grant_type is required",
+		},
+		{
+			name:            "unsupported grant type",
+			grantType:       "invalid",
+			wantCode:        "unsupported_grant_type",
+			wantDescription: "unsupported grant_type",
+		},
+		{
+			name:            "unauthorized grant type",
+			grantType:       "client_credentials",
+			wantCode:        "unauthorized_client",
+			wantDescription: "unauthorized grant_type",
+		},
 	}
 
 	for _, tt := range tests {
@@ -392,7 +558,12 @@ func TestTokenInvalidGrantType(t *testing.T) {
 			rec := httptest.NewRecorder()
 			apiServer.Routes().ServeHTTP(rec, req)
 
-			assertTokenError(t, rec, http.StatusBadRequest, tokenErrorResponse{Error: tt.wantCode, ErrorDescription: tt.wantDescription})
+			assertTokenError(
+				t,
+				rec,
+				http.StatusBadRequest,
+				tokenErrorResponse{Error: tt.wantCode, ErrorDescription: tt.wantDescription},
+			)
 		})
 	}
 }
@@ -434,7 +605,15 @@ func TestTokenInvalidScope(t *testing.T) {
 			rec := httptest.NewRecorder()
 			apiServer.Routes().ServeHTTP(rec, req)
 
-			assertTokenError(t, rec, http.StatusBadRequest, tokenErrorResponse{Error: "invalid_scope", ErrorDescription: "unknown or malformed scope"})
+			assertTokenError(
+				t,
+				rec,
+				http.StatusBadRequest,
+				tokenErrorResponse{
+					Error:            "invalid_scope",
+					ErrorDescription: "unknown or malformed scope",
+				},
+			)
 		})
 	}
 }
@@ -460,8 +639,14 @@ func TestTokenInvalidResource(t *testing.T) {
 	}{
 		{name: "single unknown resource", resources: []string{"unknown1"}},
 		{name: "multiple unknown resources", resources: []string{"unknown1", "unknown2"}},
-		{name: "one known resource with an unknown resource", resources: []string{"resource1", "unknown2"}},
-		{name: "one unknown resource with a known resource", resources: []string{"unknown1", "resource2"}},
+		{
+			name:      "one known resource with an unknown resource",
+			resources: []string{"resource1", "unknown2"},
+		},
+		{
+			name:      "one unknown resource with a known resource",
+			resources: []string{"unknown1", "resource2"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -479,7 +664,15 @@ func TestTokenInvalidResource(t *testing.T) {
 			rec := httptest.NewRecorder()
 			apiServer.Routes().ServeHTTP(rec, req)
 
-			assertTokenError(t, rec, http.StatusBadRequest, tokenErrorResponse{Error: "invalid_target", ErrorDescription: "unknown or malformed resource"})
+			assertTokenError(
+				t,
+				rec,
+				http.StatusBadRequest,
+				tokenErrorResponse{
+					Error:            "invalid_target",
+					ErrorDescription: "unknown or malformed resource",
+				},
+			)
 		})
 	}
 }
@@ -511,7 +704,10 @@ func getPublicKeyFromJWKS(t *testing.T, apiServer *Server) (*ecdsa.PublicKey, st
 		t.Fatalf("failed to decode y: %v", err)
 	}
 
-	pubKey, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), append([]byte{0x04}, append(x, y...)...))
+	pubKey, err := ecdsa.ParseUncompressedPublicKey(
+		elliptic.P256(),
+		append([]byte{0x04}, append(x, y...)...),
+	)
 	if err != nil {
 		t.Fatalf("failed to parse public key: %v", err)
 	}
@@ -730,10 +926,18 @@ func TestTokenClientCredentialsSuccess(t *testing.T) {
 			}
 
 			if rec.Header().Get("Content-Type") != "application/json" {
-				t.Errorf("got Content-Type header %q, want %q", rec.Header().Get("Content-Type"), "application/json")
+				t.Errorf(
+					"got Content-Type header %q, want %q",
+					rec.Header().Get("Content-Type"),
+					"application/json",
+				)
 			}
 			if rec.Header().Get("Cache-Control") != "no-store" {
-				t.Errorf("got Cache-Control header %q, want %q", rec.Header().Get("Cache-Control"), "no-store")
+				t.Errorf(
+					"got Cache-Control header %q, want %q",
+					rec.Header().Get("Cache-Control"),
+					"no-store",
+				)
 			}
 			if rec.Header().Get("Pragma") != "no-cache" {
 				t.Errorf("got Pragma header %q, want %q", rec.Header().Get("Pragma"), "no-cache")
@@ -749,7 +953,11 @@ func TestTokenClientCredentialsSuccess(t *testing.T) {
 				t.Errorf("got token type %q, want %q", got.TokenType, "Bearer")
 			}
 			if got.ExpiresIn != int(accessTokenLifetime.Seconds()) {
-				t.Errorf("got expires in %d, want %d", got.ExpiresIn, int(accessTokenLifetime.Seconds()))
+				t.Errorf(
+					"got expires in %d, want %d",
+					got.ExpiresIn,
+					int(accessTokenLifetime.Seconds()),
+				)
 			}
 			if got.Scope != tt.wantScope {
 				t.Errorf("got scope %q, want %q", got.Scope, tt.wantScope)
@@ -779,7 +987,11 @@ func TestTokenClientCredentialsSuccess(t *testing.T) {
 				t.Errorf("got claims audience %q, want %q", claims.Aud, tt.wantAud)
 			}
 			if claims.Exp != now.Add(accessTokenLifetime).Unix() {
-				t.Errorf("got claims expiration time %d, want %d", claims.Exp, now.Add(accessTokenLifetime).Unix())
+				t.Errorf(
+					"got claims expiration time %d, want %d",
+					claims.Exp,
+					now.Add(accessTokenLifetime).Unix(),
+				)
 			}
 			if claims.Iat != now.Unix() {
 				t.Errorf("got claims issued at %d, want %d", claims.Iat, now.Unix())

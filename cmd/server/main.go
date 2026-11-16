@@ -78,7 +78,11 @@ func run() error {
 	// Buffered channel to receive any errors from ListenAndServe
 	listenAndServeErr := make(chan error, 1)
 
-	slog.Info("server is starting", slog.String("addr", cfg.Addr), slog.String("issuer", cfg.Issuer))
+	slog.Info(
+		"server is starting",
+		slog.String("addr", cfg.Addr),
+		slog.String("issuer", cfg.Issuer),
+	)
 
 	go func() {
 		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {

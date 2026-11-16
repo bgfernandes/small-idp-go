@@ -26,7 +26,11 @@ func TestJWKSRoute(t *testing.T) {
 		}
 
 		if rec.Header().Get("Content-Type") != "application/json" {
-			t.Errorf("got Content-Type %q, want %q", rec.Header().Get("Content-Type"), "application/json")
+			t.Errorf(
+				"got Content-Type %q, want %q",
+				rec.Header().Get("Content-Type"),
+				"application/json",
+			)
 		}
 
 		var set jwk.Set

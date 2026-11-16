@@ -20,16 +20,17 @@ type UserStore struct {
 	passwordHashCost int
 }
 
-// DefaultPasswordHashCost is the cost for the bcrypt password hash used in production when creating a new user,
-// (in the future) re-hashing a user's password on login, or (in the future) doing a dummy comparison to mitigate timing
-// attacks on password verification.
-// For production, this value should be changed deliberately, and upward, as hardware gets faster. It is a constant here
-// because it does not need to be tuned per deployment.
+// DefaultPasswordHashCost is the cost for the bcrypt password hash used in production when creating
+// a new user, (in the future) re-hashing a user's password on login, or (in the future) doing a
+// dummy comparison to mitigate timing attacks on password verification.
+// For production, this value should be changed deliberately, and upward, as hardware gets faster.
+// It is a constant here because it does not need to be tuned per deployment.
 const DefaultPasswordHashCost = 12
 
 // NewUserStore creates a new UserStore.
-// passwordHashCost is the cost of the bcrypt password hash, and must be between bcrypt.MinCost and bcrypt.MaxCost, for tests it should be bcrypt.MinCost
-// and for production it should be a fixed higher cost.
+// passwordHashCost is the cost of the bcrypt password hash, and must be between bcrypt.MinCost and
+// bcrypt.MaxCost, for tests it should be bcrypt.MinCost and for production it should be a fixed
+// higher cost.
 func NewUserStore(db *sql.DB, passwordHashCost int) *UserStore {
 	if passwordHashCost < bcrypt.MinCost || passwordHashCost > bcrypt.MaxCost {
 		panic("postgres: passwordHashCost must be between bcrypt.MinCost and bcrypt.MaxCost")
@@ -72,18 +73,30 @@ func (s *UserStore) Create(ctx context.Context, params user.CreateParams) (user.
 		return user.User{}, &user.InvalidUserError{Field: "Email", Reason: "email is required"}
 	}
 	if strings.Count(params.Email, "@") != 1 {
-		return user.User{}, &user.InvalidUserError{Field: "Email", Reason: "email must contain exactly one @"}
+		return user.User{}, &user.InvalidUserError{
+			Field:  "Email",
+			Reason: "email must contain exactly one @",
+		}
 	}
 	if strings.ContainsFunc(params.Email, unicode.IsSpace) {
-		return user.User{}, &user.InvalidUserError{Field: "Email", Reason: "email must not contain whitespace"}
+		return user.User{}, &user.InvalidUserError{
+			Field:  "Email",
+			Reason: "email must not contain whitespace",
+		}
 	}
 
 	// Validate password: simple policy of non empty and at most 72 bytes for now
 	if params.Password == "" {
-		return user.User{}, &user.InvalidUserError{Field: "Password", Reason: "password is required"}
+		return user.User{}, &user.InvalidUserError{
+			Field:  "Password",
+			Reason: "password is required",
+		}
 	}
 	if len(params.Password) > 72 {
-		return user.User{}, &user.InvalidUserError{Field: "Password", Reason: "password must be at most 72 bytes"}
+		return user.User{}, &user.InvalidUserError{
+			Field:  "Password",
+			Reason: "password must be at most 72 bytes",
+		}
 	}
 
 	passwordHash, err := s.hashPassword(params.Password)
@@ -107,7 +120,10 @@ func (s *UserStore) Create(ctx context.Context, params user.CreateParams) (user.
 		if pgError, ok := errors.AsType[*pgconn.PgError](err); ok {
 			// 23505 is the SQLState code for unique_violation
 			if pgError.Code == "23505" && pgError.ConstraintName == "users_email_key" {
-				return user.User{}, &user.InvalidUserError{Field: "Email", Reason: "email must be unique"}
+				return user.User{}, &user.InvalidUserError{
+					Field:  "Email",
+					Reason: "email must be unique",
+				}
 			}
 		}
 		return user.User{}, fmt.Errorf("insert user: %w", err)

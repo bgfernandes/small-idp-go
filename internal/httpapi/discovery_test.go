@@ -74,7 +74,11 @@ func TestOAuthMetadataBody(t *testing.T) {
 
 			apiServer, _ := newTestServer(t, testServerOptions{issuer: tt.issuer})
 
-			req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-authorization-server", nil)
+			req := httptest.NewRequest(
+				http.MethodGet,
+				"/.well-known/oauth-authorization-server",
+				nil,
+			)
 			rec := httptest.NewRecorder()
 			apiServer.Routes().ServeHTTP(rec, req)
 
@@ -83,7 +87,11 @@ func TestOAuthMetadataBody(t *testing.T) {
 			}
 
 			if rec.Header().Get("Content-Type") != "application/json" {
-				t.Fatalf("got Content-Type %q, want Content-Type %q", rec.Header().Get("Content-Type"), "application/json")
+				t.Fatalf(
+					"got Content-Type %q, want Content-Type %q",
+					rec.Header().Get("Content-Type"),
+					"application/json",
+				)
 			}
 
 			var got authorizationServerMetadata
@@ -122,7 +130,8 @@ func TestOAuthMetadataExactKeys(t *testing.T) {
 		t.Fatalf("got %d keys, want 5", len(got))
 	}
 
-	// assert the keys are exactly these five: issuer, token_endpoint, jwks_uri, grant_types_supported, token_endpoint_auth_methods_supported
+	// assert the keys are exactly these five: issuer, token_endpoint, jwks_uri,
+	// grant_types_supported, token_endpoint_auth_methods_supported
 	wantKeys := []string{
 		"issuer",
 		"token_endpoint",
@@ -156,7 +165,11 @@ func TestOAuthMetadataBehindPrefixStrippingProxy(t *testing.T) {
 
 	apiServer, _ := newTestServer(t, testServerOptions{issuer: "http://localhost:8080/tenant"})
 
-	req := httptest.NewRequest(http.MethodGet, "/tenant/.well-known/oauth-authorization-server", nil)
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/tenant/.well-known/oauth-authorization-server",
+		nil,
+	)
 	rec := httptest.NewRecorder()
 	http.StripPrefix("/tenant", apiServer.Routes()).ServeHTTP(rec, req)
 
@@ -175,7 +188,11 @@ func TestOAuthMetadataBehindPrefixStrippingProxy(t *testing.T) {
 	}
 
 	if got.TokenEndpoint != "http://localhost:8080/tenant/token" {
-		t.Errorf("got token endpoint %q, want %q", got.TokenEndpoint, "http://localhost:8080/tenant/token")
+		t.Errorf(
+			"got token endpoint %q, want %q",
+			got.TokenEndpoint,
+			"http://localhost:8080/tenant/token",
+		)
 	}
 
 	if got.JWKSURI != "http://localhost:8080/tenant/jwks" {
@@ -197,7 +214,11 @@ func TestOAuthMetadataInsertedFormNotServed(t *testing.T) {
 
 	apiServer, _ := newTestServer(t, testServerOptions{})
 
-	req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-authorization-server/tenant", nil)
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/.well-known/oauth-authorization-server/tenant",
+		nil,
+	)
 	rec := httptest.NewRecorder()
 	apiServer.Routes().ServeHTTP(rec, req)
 

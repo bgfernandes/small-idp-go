@@ -42,7 +42,8 @@ type CreateParams struct {
 // ErrNotFound is returned when a client is not found.
 var ErrNotFound = errors.New("client not found")
 
-// ErrUnknownClientOrWrongSecret is returned when a client is not found or the secret is wrong as per per RFC 6749 §5.2.
+// ErrUnknownClientOrWrongSecret is returned when a client is not found or the secret is wrong as
+// per per RFC 6749 §5.2.
 var ErrUnknownClientOrWrongSecret = errors.New("unknown client or wrong secret")
 
 // InvalidClientError is returned when a client is invalid.

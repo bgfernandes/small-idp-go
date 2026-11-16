@@ -17,7 +17,8 @@ import (
 var embedMigrations embed.FS
 
 // RunMigrations runs the migrations for the given database.
-// It uses a PostgreSQL session locker to ensure that only one instance of the app runs the migrations at a time.
+// It uses a PostgreSQL session locker to ensure that only one instance of the app runs the
+// migrations at a time.
 // It also uses the embed.FS to load the migrations from the embed.FS.
 func RunMigrations(ctx context.Context, db *sql.DB) error {
 	fsys, err := fs.Sub(embedMigrations, "migrations")
@@ -39,7 +40,8 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("new provider: %w", err)
 	}
-	// No defer provider.Close() because it would only close the database connection, that we want to keep open.
+	// No defer provider.Close() because it would only close the database connection, that we want
+	// to keep open.
 
 	if _, err := provider.Up(ctx); err != nil {
 		return fmt.Errorf("up: %w", err)
