@@ -23,7 +23,11 @@ The value of this project depends on Bruno writing the code. Claude is a **tutor
 
 ## Engineering ground rules
 
-- **Standard library only for the core.** `net/http`, `crypto/*`, `encoding/json`, `encoding/base64`, `html/template`, `log/slog`, `database/sql`. No web framework, no router library, no JWT library. Hand-roll JWS (RFC 7515) signing and verification. Third-party code is allowed only for the PostgreSQL driver (`github.com/jackc/pgx/v5`, used through its `database/sql` adapter `pgx/v5/stdlib`), the migration tool (`github.com/pressly/goose/v3`), and the test clients in phase 4 (`github.com/coreos/go-oidc/v3`, `golang.org/x/oauth2`).
+- **Standard library only for the core.** `net/http`, `crypto/*`, `encoding/json`, `encoding/base64`, `html/template`, `log/slog`, `database/sql`. No web framework, no router library, no JWT library. Hand-roll JWS (RFC 7515) signing and verification. Third-party code is allowed only for:
+  - the PostgreSQL driver, `github.com/jackc/pgx/v5`, used through its `database/sql` adapter `pgx/v5/stdlib`;
+  - the migration tool, `github.com/pressly/goose/v3`;
+  - password hashing, `golang.org/x/crypto/bcrypt`, since the standard library has no bcrypt or argon2;
+  - the test clients in phase 4, `github.com/coreos/go-oidc/v3` and `golang.org/x/oauth2`.
 - **Persistence:** PostgreSQL through `database/sql`, hand-written SQL, no ORM. Schema changes are `goose` SQL migrations embedded in the binary with `embed` and applied at startup. `compose.yaml` runs the local instance; the README documents it. The PostgreSQL code lives in one package (`internal/postgres`) so the driver import stays in one place; the types and interfaces it satisfies are defined where they are consumed.
 - **Go version:** 1.27 (`go version go1.27.1 darwin/arm64` on Bruno's machine, pinned in `mise.toml` and managed with mise). Use the modern APIs: `http.ServeMux` method-and-path patterns (Go 1.22+), `log/slog`, `signal.NotifyContext`, `errors.Is`/`errors.As`, range-over-int.
 - **Layout:** `cmd/server/main.go` for the binary, `internal/<package>` for everything else. Keep packages small and named for what they contain (`internal/jwk`, `internal/token`, `internal/authz`), not `utils` or `common`.
@@ -34,7 +38,7 @@ The value of this project depends on Bruno writing the code. Claude is a **tutor
 - **Commits:** small and frequent, one concern each. Message format: imperative summary, then a body line citing the spec when the change comes from one, e.g. `Reject plain PKCE method (RFC 7636 §4.2, Security BCP §4.8.2)`. Don't squash history.
 - **Spec citations in code:** when a behaviour comes from a spec, put the RFC and section in a comment next to it.
 - **Deliberately unsupported**, and the README says so: `implicit` grant, `password` grant, `plain` PKCE, symmetric (`HS*`) signing, unregistered or wildcard redirect URIs. If asked to add one, point to the BCP that recommends against it.
-- **Security posture:** it's a learning project, but don't teach bad habits. Constant-time comparisons for secrets, `crypto/rand` for anything random, `bcrypt` for the hard-coded users, `HttpOnly`/`Secure`/`SameSite` on cookies, exact-match `redirect_uri`.
+- **Security posture:** it's a learning project, but don't teach bad habits. Constant-time comparisons for secrets, `crypto/rand` for anything random, `bcrypt` for user passwords, `HttpOnly`/`Secure`/`SameSite` on cookies, exact-match `redirect_uri`.
 
 ## Where the wider context lives
 

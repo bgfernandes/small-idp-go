@@ -142,7 +142,8 @@ Go topics from the token endpoint work:
 
 Ships browser login.
 
-- [ ] Hard-coded user store (username, bcrypt-hashed password) and a minimal HTML login page via `html/template`.
+- [ ] User store in PostgreSQL: types in `internal/user`, `postgres.UserStore` beside the client store, a `goose` migration for `users`, users created with `cmd/users`. Details in 2.1.
+- [ ] Minimal HTML login page via `html/template`.
 - [ ] `GET /authorize` (RFC 6749 §4.1): validate `client_id`, `redirect_uri` exact match, `response_type=code`, `scope`, `state`; require PKCE `code_challenge` with `S256` (RFC 7636). Reject `plain`.
 - [ ] Login and consent pages; consent skippable per client for first-party apps.
 - [ ] Authorization code: single-use, short TTL, bound to `client_id`, `redirect_uri`, `code_challenge`, `nonce`.
@@ -157,7 +158,23 @@ Ships browser login.
 - [ ] Server-side IdP session cookie, `HttpOnly`, `Secure`, `SameSite=Lax`; `prompt=none` and `prompt=login`; `max_age` re-authentication.
 - [ ] Tests: full code flow driven with `httptest` and a cookie jar, PKCE failure cases, `nonce` round-trip, single-use code, `redirect_uri` mismatch.
 
-Go topics: `html/template`, cookies and sessions, `context`, `sync.Mutex` or channels for the in-memory stores, `time` handling, `errors.Is` / `errors.As`.
+Go topics: `html/template`, cookies and sessions, `context`, `time` handling, `errors.Is` / `errors.As`, `golang.org/x/crypto/bcrypt` and why a password hash is not a secret hash, reading a secret from stdin in a CLI.
+
+#### 2.1 User store
+
+Decided 2026-11-16: users live in PostgreSQL, not in a hard-coded in-memory store, so the server stays stateless and the login handler calls a real `Authenticate`. The shape mirrors the client store: `User`, `CreateParams`, the sentinel errors and an `InvalidUserError` type in a dependency-free `internal/user`; the implementation in `internal/postgres`; consumers define the interfaces they need.
+
+Record: `id` is `text`, generated with `crypto/rand.Text` like the client ID, and becomes the OIDC `sub` (OIDC Core §2: locally unique, never reassigned, at most 255 ASCII characters), so it is never the email, which can change. Then `password_hash` and timestamps. Profile columns wait for `GET /userinfo`.
+
+`email` has a unique index on `lower(email)`, so login looks the email up case-insensitively and the SQLSTATE 23505 violation becomes `InvalidUserError` as with client names.
+
+Passwords are hashed with `golang.org/x/crypto/bcrypt`, allowed as the one exception beyond the driver and the migration tool: it is maintained by the Go team and bcrypt is the baseline interviewers expect; `crypto/pbkdf2` is in the standard library since Go 1.24 but needs a hand-rolled storage format and is weaker per CPU unit against GPU attackers.
+
+The cost is injected through the store constructor so integration tests run at `bcrypt.MinCost`. The password byte length is checked against bcrypt's 72-byte limit in `Create`, returning `InvalidUserError` rather than the library's `ErrPasswordTooLong`.
+
+`Authenticate` returns one error for unknown email and wrong password alike, and the not-found path compares against a dummy hash at the same cost: with bcrypt the compare takes hundreds of milliseconds and an index miss microseconds, so without it the email oracle is trivial. The hash never leaves the store.
+
+`cmd/users create` is a local development utility like `cmd/clients`: it takes the password from a flag, which lands in shell history and `ps` output, and the README says so. If it is ever used against a deployed instance, the password must come from stdin or be generated and printed once, and the tool should talk to the phase 3 admin API rather than the database.
 
 ### Phase 3 — Lifecycle
 
