@@ -42,7 +42,7 @@ gofmt -l .                                       # list unformatted files, empty
 
 ## Local infrastructure
 
-The client registry lives in PostgreSQL. `compose.yaml` runs one for local development; it needs [Docker](https://docs.docker.com/get-docker/) with the Compose plugin.
+The client registry and the user store live in PostgreSQL. `compose.yaml` runs one for local development; it needs [Docker](https://docs.docker.com/get-docker/) with the Compose plugin.
 
 ```sh
 docker compose up -d --wait # start PostgreSQL in the background and wait until it is healthy
@@ -138,6 +138,24 @@ go run ./cmd/clients create \
 Exit codes follow the usual convention: 0 on success, 1 when the client was rejected or the database failed, 2 on a usage error. The result goes to stdout, diagnostics go to stderr. `go run ./cmd/clients -h` and `go run ./cmd/clients create -h` print the usage.
 
 This is a local development utility and is deliberately untested. A later phase adds an admin API for managing clients, and the tool will call that API instead of the database, so it can also manage a deployed instance; see [`PLAN.md`](PLAN.md).
+
+## Creating a user
+
+Users are the resource owners who will log in through the browser flow in phase 2. `cmd/users` creates one directly in the database:
+
+```sh
+go run ./cmd/users create \
+  -email alice@example.com \
+  -password 'correct horse battery staple'
+```
+
+The tool prints the user ID, which becomes the `sub` claim of ID tokens, and stores only the bcrypt hash of the password. Emails are unique, compared case-insensitively. The email check is deliberately minimal (one `@`, no whitespace) and the password only has to be non-empty and at most 72 bytes, bcrypt's limit.
+
+The tool connects with `SMALLIDP_DATABASE_URL` and expects the schema to be in place, which the server does at startup, so restart the server after pulling a new migration.
+
+The password is taken from a command-line flag, which leaves it in the shell history and visible in `ps` output while the command runs. That is acceptable for a local development utility only. If this tool is ever pointed at a deployed instance, the password must come from stdin or be generated and printed once, like the client secret.
+
+Exit codes and output follow `cmd/clients`: 0 on success, 1 when the user was rejected or the database failed, 2 on a usage error; the result goes to stdout and diagnostics to stderr. `go run ./cmd/users -h` and `go run ./cmd/users create -h` print the usage. Like `cmd/clients`, it is deliberately untested and will become a client of the phase 3 admin API.
 
 ## Getting a token
 

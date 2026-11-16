@@ -20,6 +20,13 @@ type UserStore struct {
 	passwordHashCost int
 }
 
+// DefaultPasswordHashCost is the cost for the bcrypt password hash used in production when creating a new user,
+// (in the future) re-hashing a user's password on login, or (in the future) doing a dummy comparison to mitigate timing
+// attacks on password verification.
+// For production, this value should be changed deliberately, and upward, as hardware gets faster. It is a constant here
+// because it does not need to be tuned per deployment.
+const DefaultPasswordHashCost = 12
+
 // NewUserStore creates a new UserStore.
 // passwordHashCost is the cost of the bcrypt password hash, and must be between bcrypt.MinCost and bcrypt.MaxCost, for tests it should be bcrypt.MinCost
 // and for production it should be a fixed higher cost.
