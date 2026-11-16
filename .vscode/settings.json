@@ -1,3 +1,11 @@
 {
-    "go.buildTags": "integration"
+    "go.buildTags": "integration",
+    "gopls": {
+        "ui.diagnostic.staticcheck": true
+    },
+    "go.lintTool": "golangci-lint-v2",
+    "go.formatTool": "custom",
+    "go.formatFlags": ["fmt", "--stdin"],
+    "go.alternateTools": { "customFormatter": "golangci-lint" },
+    "[go]": { "editor.formatOnSave": true }
 }

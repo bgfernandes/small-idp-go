@@ -15,3 +15,12 @@ linters:
       # This matches gopls with "ui.diagnostic.staticcheck": true, so the editor
       # and the command line report the same findings.
       checks: ["all"]
+
+formatters:
+  enable:
+    - gofmt
+    - golines
+  settings:
+    golines:
+      max-len: 100
+      shorten-comments: true
