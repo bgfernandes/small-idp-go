@@ -178,6 +178,22 @@ The cost is injected through the store constructor so integration tests run at `
 
 `cmd/users create` is a local development utility like `cmd/clients`: it takes the password from a flag, which lands in shell history and `ps` output, and the README says so. If it is ever used against a deployed instance, the password must come from stdin or be generated and printed once, and the tool should talk to the phase 3 admin API rather than the database.
 
+#### 2.2 Login page
+
+Decided 2026-11-16, before the session cookie and `/authorize` exist. The page is a thin caller of `UserStore.Authenticate` and lives in a new package, `internal/web`, which holds the browser-facing HTML (login now, consent and an error page later), parses its templates once at startup with `embed` and `template.ParseFS`, and exposes `Routes()`; `cmd/server` composes it with `httpapi` on one mux.
+
+Behaviour: `GET /login` renders the form; `POST /login` reads `r.PostForm` through the same `MaxBytesReader` pattern as the token endpoint, calls `Authenticate` with the submitted email verbatim (no format validation at login), and on success returns a 200 page with the email, a placeholder until the session cookie bullet.
+
+A failed login is 200 with the form and one generic message for unknown email and wrong password alike, so the page does not reopen the enumeration oracle the store closes. A 401 would need `WWW-Authenticate` (RFC 9110 §15.5.2), which makes no sense for a form.
+
+CSRF: CORS does not protect a form endpoint. A form `POST` is a top-level navigation, outside CORS entirely: the browser sends it without preflight, renders the response as a page on this origin and stores any `Set-Cookie` it carries, which is how SAML POST bindings and OAuth callbacks log users in.
+
+CORS applies only to `fetch` and `XMLHttpRequest`, and even there it blocks reading the response, not sending the request; whether cookies are sent or stored is decided by the credentials mode and `SameSite`, never by CORS.
+
+Login CSRF logs the victim in as the attacker, harmless today and serious once the session cookie exists, so the defence goes in first: `http.CrossOriginProtection` (Go 1.25) wrapping the mux rejects unsafe cross-origin requests by `Sec-Fetch-Site`, falling back to `Origin` against `Host`; non-browser clients send neither header and pass, so the token endpoint is unaffected. `SameSite=Lax` on the session cookie adds a second layer later.
+
+Hygiene: the password is never logged or re-rendered; the email is re-rendered escaped by the template; templates execute into a buffer before the response is written, so a template failure is a clean 500; `Cache-Control: no-store` and `X-Frame-Options: DENY` on both methods; the form action derives from the configured issuer (1.2), tested through `http.StripPrefix`.
+
 ### Phase 3 — Lifecycle
 
 Ships the parts that make a provider operable.
