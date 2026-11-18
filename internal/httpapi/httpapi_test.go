@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/bgfernandes/small-idp-go/internal/client"
+	"github.com/bgfernandes/small-idp-go/internal/issuer"
 	"github.com/bgfernandes/small-idp-go/internal/jwk"
 )
 
@@ -23,65 +24,15 @@ func (f *fakeClientAuthenticator) Authenticate(
 	return f.authenticate(ctx, clientID, clientSecret)
 }
 
-func TestNewServerIssuerValidation(t *testing.T) {
-	t.Parallel()
-
-	clientAuthenticator := &fakeClientAuthenticator{}
-
-	key, err := jwk.Generate()
-	if err != nil {
-		t.Fatalf("failed to generate key: %v", err)
-	}
-
-	log := slog.New(slog.DiscardHandler)
-
-	tests := []struct {
-		name    string
-		issuer  string
-		wantErr bool
-	}{
-		{name: "valid root issuer", issuer: "http://localhost:8080", wantErr: false},
-		{name: "valid https issuer", issuer: "https://idp.example.com", wantErr: false},
-		{name: "valid issuer with path", issuer: "https://idp.example.com/tenant", wantErr: false},
-		{name: "empty string issuer", issuer: "", wantErr: true},
-		{name: "unparseable issuer", issuer: "://bad", wantErr: true},
-		{name: "no scheme issuer", issuer: "idp.example.com", wantErr: true},
-		{name: "wrong scheme issuer", issuer: "ftp://idp.example.com", wantErr: true},
-		{name: "no host issuer", issuer: "http://", wantErr: true},
-		{name: "issuer with query", issuer: "http://idp.example.com?x=1", wantErr: true},
-		{name: "issuer with fragment", issuer: "http://idp.example.com#x=1", wantErr: true},
-		{name: "issuer with trailing slash", issuer: "http://idp.example.com/", wantErr: true},
-		{
-			name:    "issuer with path and trailing slash",
-			issuer:  "http://idp.example.com/tenant/",
-			wantErr: true,
-		},
-		{name: "issuer with trailing ?", issuer: "http://idp.example.com?", wantErr: true},
-		{name: "issuer with trailing #", issuer: "http://idp.example.com#", wantErr: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			_, err := NewServer(Config{
-				AccessTokenLifetime: 5 * time.Minute,
-				ClientAuthenticator: clientAuthenticator,
-				Issuer:              tt.issuer,
-				Key:                 key,
-				Log:                 log,
-				Now:                 time.Now,
-			})
-			if (err != nil) != tt.wantErr {
-				t.Errorf("NewServer(%q) = %v, wantErr %t", tt.issuer, err, tt.wantErr)
-			}
-		})
-	}
-}
-
 func TestNewServerRequiredDependencies(t *testing.T) {
 	t.Parallel()
 
 	clientAuthenticator := &fakeClientAuthenticator{}
+
+	validIssuer, err := issuer.Parse("http://localhost:8080")
+	if err != nil {
+		t.Fatalf("failed to parse issuer: %v", err)
+	}
 
 	key, err := jwk.Generate()
 	if err != nil {
@@ -94,6 +45,7 @@ func TestNewServerRequiredDependencies(t *testing.T) {
 		name                string
 		accessTokenLifetime time.Duration
 		clientAuthenticator ClientAuthenticator
+		issuer              issuer.Issuer
 		key                 *jwk.Key
 		log                 *slog.Logger
 		now                 func() time.Time
@@ -103,6 +55,7 @@ func TestNewServerRequiredDependencies(t *testing.T) {
 			name:                "zero access token lifetime",
 			accessTokenLifetime: 0,
 			clientAuthenticator: clientAuthenticator,
+			issuer:              validIssuer,
 			key:                 key,
 			log:                 log,
 			now:                 time.Now,
@@ -112,6 +65,7 @@ func TestNewServerRequiredDependencies(t *testing.T) {
 			name:                "negative access token lifetime",
 			accessTokenLifetime: -1 * time.Second,
 			clientAuthenticator: clientAuthenticator,
+			issuer:              validIssuer,
 			key:                 key,
 			log:                 log,
 			now:                 time.Now,
@@ -121,6 +75,17 @@ func TestNewServerRequiredDependencies(t *testing.T) {
 			name:                "nil clientAuthenticator",
 			accessTokenLifetime: 5 * time.Minute,
 			clientAuthenticator: nil,
+			issuer:              validIssuer,
+			key:                 key,
+			log:                 log,
+			now:                 time.Now,
+			wantErr:             true,
+		},
+		{
+			name:                "zero issuer",
+			accessTokenLifetime: 5 * time.Minute,
+			clientAuthenticator: clientAuthenticator,
+			issuer:              issuer.Issuer{},
 			key:                 key,
 			log:                 log,
 			now:                 time.Now,
@@ -130,6 +95,7 @@ func TestNewServerRequiredDependencies(t *testing.T) {
 			name:                "nil key",
 			accessTokenLifetime: 5 * time.Minute,
 			clientAuthenticator: clientAuthenticator,
+			issuer:              validIssuer,
 			key:                 nil,
 			log:                 log,
 			now:                 time.Now,
@@ -139,6 +105,7 @@ func TestNewServerRequiredDependencies(t *testing.T) {
 			name:                "nil logger",
 			accessTokenLifetime: 5 * time.Minute,
 			clientAuthenticator: clientAuthenticator,
+			issuer:              validIssuer,
 			key:                 key,
 			log:                 nil,
 			now:                 time.Now,
@@ -148,6 +115,7 @@ func TestNewServerRequiredDependencies(t *testing.T) {
 			name:                "nil now function",
 			accessTokenLifetime: 5 * time.Minute,
 			clientAuthenticator: clientAuthenticator,
+			issuer:              validIssuer,
 			key:                 key,
 			log:                 log,
 			now:                 nil,
@@ -157,6 +125,7 @@ func TestNewServerRequiredDependencies(t *testing.T) {
 			name:                "valid config",
 			accessTokenLifetime: 5 * time.Minute,
 			clientAuthenticator: clientAuthenticator,
+			issuer:              validIssuer,
 			key:                 key,
 			log:                 log,
 			now:                 time.Now,
@@ -170,7 +139,7 @@ func TestNewServerRequiredDependencies(t *testing.T) {
 			_, err := NewServer(Config{
 				AccessTokenLifetime: tt.accessTokenLifetime,
 				ClientAuthenticator: tt.clientAuthenticator,
-				Issuer:              "http://localhost:8080",
+				Issuer:              tt.issuer,
 				Key:                 tt.key,
 				Log:                 tt.log,
 				Now:                 tt.now,
@@ -206,6 +175,11 @@ func newTestServer(t *testing.T, opts testServerOptions) (*Server, *jwk.Key) {
 		opts.now = time.Now
 	}
 
+	i, err := issuer.Parse(opts.issuer)
+	if err != nil {
+		t.Fatalf("failed to parse issuer: %v", err)
+	}
+
 	key, err := jwk.Generate()
 	if err != nil {
 		t.Fatalf("failed to generate key: %v", err)
@@ -217,7 +191,7 @@ func newTestServer(t *testing.T, opts testServerOptions) (*Server, *jwk.Key) {
 		Config{
 			AccessTokenLifetime: opts.accessTokenLifetime,
 			ClientAuthenticator: opts.clientAuthenticator,
-			Issuer:              opts.issuer,
+			Issuer:              i,
 			Key:                 key,
 			Log:                 log,
 			Now:                 opts.now,

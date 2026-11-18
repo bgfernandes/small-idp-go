@@ -2,12 +2,25 @@ package config
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 	"time"
+
+	"github.com/bgfernandes/small-idp-go/internal/issuer"
 )
 
 func TestLoad(t *testing.T) {
 	t.Parallel()
+
+	defaultIssuer, err := issuer.Parse("http://localhost:8080")
+	if err != nil {
+		t.Fatalf("failed to parse default issuer: %v", err)
+	}
+
+	customIssuer, err := issuer.Parse("https://idp.example.com")
+	if err != nil {
+		t.Fatalf("failed to parse custom issuer: %v", err)
+	}
 
 	tests := []struct {
 		name string
@@ -21,7 +34,7 @@ func TestLoad(t *testing.T) {
 				AccessTokenLifetime: 5 * time.Minute,
 				Addr:                ":8080",
 				DatabaseURL:         "postgresql://smallidp:smallidp@localhost:5432/smallidp",
-				Issuer:              "http://localhost:8080",
+				Issuer:              defaultIssuer,
 			},
 		},
 		{
@@ -36,7 +49,7 @@ func TestLoad(t *testing.T) {
 				AccessTokenLifetime: 5 * time.Minute,
 				Addr:                ":8080",
 				DatabaseURL:         "postgresql://smallidp:smallidp@localhost:5432/smallidp",
-				Issuer:              "http://localhost:8080",
+				Issuer:              defaultIssuer,
 			},
 		},
 
@@ -52,7 +65,7 @@ func TestLoad(t *testing.T) {
 				AccessTokenLifetime: 120 * time.Second,
 				Addr:                ":8081",
 				DatabaseURL:         "postgresql://someuser:somepassword@localhost:5432/somedb",
-				Issuer:              "https://idp.example.com",
+				Issuer:              customIssuer,
 			},
 		},
 	}
@@ -67,14 +80,14 @@ func TestLoad(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to load config: %v", err)
 			}
-			if got != tt.want {
+			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("Load() = %+v, want %+v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestInvalidAccessTokenLifetimeSeconds(t *testing.T) {
+func TestLoadInvalidValues(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -82,24 +95,30 @@ func TestInvalidAccessTokenLifetimeSeconds(t *testing.T) {
 		env  map[string]string
 		want error
 	}{
-		{name: "negative value", env: map[string]string{
+		{name: "negative access token lifetime", env: map[string]string{
 			"SMALLIDP_ACCESS_TOKEN_LIFETIME": "-1s",
 			"SMALLIDP_ADDR":                  ":8081",
 			"SMALLIDP_DATABASE_URL":          "postgresql://someuser:somepassword@localhost:5432/somedb",
 			"SMALLIDP_ISSUER":                "https://idp.example.com",
 		}, want: ErrInvalidAccessTokenLifetime},
-		{name: "zero value", env: map[string]string{
+		{name: "zero access token lifetime", env: map[string]string{
 			"SMALLIDP_ACCESS_TOKEN_LIFETIME": "0s",
 			"SMALLIDP_ADDR":                  ":8081",
 			"SMALLIDP_DATABASE_URL":          "postgresql://someuser:somepassword@localhost:5432/somedb",
 			"SMALLIDP_ISSUER":                "https://idp.example.com",
 		}, want: ErrInvalidAccessTokenLifetime},
-		{name: "string value", env: map[string]string{
+		{name: "string access token lifetime", env: map[string]string{
 			"SMALLIDP_ACCESS_TOKEN_LIFETIME": "some string",
 			"SMALLIDP_ADDR":                  ":8081",
 			"SMALLIDP_DATABASE_URL":          "postgresql://someuser:somepassword@localhost:5432/somedb",
 			"SMALLIDP_ISSUER":                "https://idp.example.com",
 		}, want: ErrInvalidAccessTokenLifetime},
+		{name: "invalid issuer", env: map[string]string{
+			"SMALLIDP_ACCESS_TOKEN_LIFETIME": "120s",
+			"SMALLIDP_ADDR":                  ":8081",
+			"SMALLIDP_DATABASE_URL":          "postgresql://someuser:somepassword@localhost:5432/somedb",
+			"SMALLIDP_ISSUER":                "invalid",
+		}, want: ErrInvalidIssuer},
 	}
 
 	for _, tt := range tests {

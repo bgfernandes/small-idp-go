@@ -8,11 +8,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
 
 	"github.com/bgfernandes/small-idp-go/internal/client"
+	"github.com/bgfernandes/small-idp-go/internal/issuer"
 	"github.com/bgfernandes/small-idp-go/internal/jwk"
 )
 
@@ -25,7 +24,7 @@ type ClientAuthenticator interface {
 type Server struct {
 	accessTokenLifetime time.Duration
 	clientAuthenticator ClientAuthenticator
-	issuer              string
+	issuer              issuer.Issuer
 	jwksURI             string
 	key                 *jwk.Key
 	log                 *slog.Logger
@@ -37,7 +36,7 @@ type Server struct {
 type Config struct {
 	AccessTokenLifetime time.Duration
 	ClientAuthenticator ClientAuthenticator
-	Issuer              string
+	Issuer              issuer.Issuer
 	Key                 *jwk.Key
 	Log                 *slog.Logger
 	Now                 func() time.Time
@@ -55,24 +54,8 @@ func NewServer(
 		return nil, errors.New("Config.ClientAuthenticator is required")
 	}
 
-	// Validate issuer per RFC 8414 §2, accepting plain HTTP for now
-	issuerURL, err := url.Parse(config.Issuer)
-	if err != nil {
-		return nil, fmt.Errorf("invalid Config.Issuer: %w", err)
-	}
-	if issuerURL.Scheme != "http" && issuerURL.Scheme != "https" {
-		return nil, errors.New("Config.Issuer must use HTTP or HTTPS scheme")
-	}
-	if issuerURL.Host == "" {
-		return nil, errors.New("Config.Issuer must have a host")
-	}
-	// Do not allow query params or fragments as per RFC 8414 §2
-	if strings.ContainsAny(config.Issuer, "?#") {
-		return nil, errors.New("Config.Issuer must not have query params or fragments")
-	}
-	// Do not allow trailing slash for consistency
-	if strings.HasSuffix(config.Issuer, "/") {
-		return nil, errors.New("Config.Issuer must not have a trailing slash")
+	if config.Issuer.IsZero() {
+		return nil, errors.New("Config.Issuer must be a non-zero value")
 	}
 
 	if config.Key == nil {
@@ -87,15 +70,9 @@ func NewServer(
 		return nil, errors.New("Config.Now is required")
 	}
 
-	tokenEndpoint, err := url.JoinPath(config.Issuer, "token")
-	if err != nil {
-		return nil, fmt.Errorf("invalid token endpoint: %w", err)
-	}
+	tokenEndpoint := config.Issuer.URL("token")
 
-	jwksURI, err := url.JoinPath(config.Issuer, "jwks")
-	if err != nil {
-		return nil, fmt.Errorf("invalid JWKS URI: %w", err)
-	}
+	jwksURI := config.Issuer.URL("jwks")
 
 	return &Server{
 		accessTokenLifetime: config.AccessTokenLifetime,

@@ -81,7 +81,7 @@ func run() error {
 	slog.Info(
 		"server is starting",
 		slog.String("addr", cfg.Addr),
-		slog.String("issuer", cfg.Issuer),
+		slog.String("issuer", cfg.Issuer.String()),
 	)
 
 	go func() {

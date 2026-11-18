@@ -5,16 +5,23 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/bgfernandes/small-idp-go/internal/issuer"
 )
 
 type Config struct {
 	AccessTokenLifetime time.Duration
 	Addr                string
 	DatabaseURL         string
-	Issuer              string
+	Issuer              issuer.Issuer
 }
 
-var ErrInvalidAccessTokenLifetime = errors.New("invalid SMALLIDP_ACCESS_TOKEN_LIFETIME")
+var (
+	ErrInvalidAccessTokenLifetime = errors.New("invalid SMALLIDP_ACCESS_TOKEN_LIFETIME")
+	ErrInvalidIssuer              = errors.New("invalid SMALLIDP_ISSUER")
+)
+
+var defaultIssuer = issuer.MustParse("http://localhost:8080")
 
 // Load loads the configuration from the environment or uses default values.
 func Load(getenv func(string) string) (Config, error) {
@@ -24,7 +31,7 @@ func Load(getenv func(string) string) (Config, error) {
 		AccessTokenLifetime: 5 * time.Minute,
 		Addr:                ":8080",
 		DatabaseURL:         "postgresql://smallidp:smallidp@localhost:5432/smallidp",
-		Issuer:              "http://localhost:8080",
+		Issuer:              defaultIssuer,
 	}
 
 	if v := getenv("SMALLIDP_ACCESS_TOKEN_LIFETIME"); v != "" {
@@ -49,7 +56,11 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 
 	if v := getenv("SMALLIDP_ISSUER"); v != "" {
-		cfg.Issuer = v
+		i, err := issuer.Parse(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("%w: %w", ErrInvalidIssuer, err)
+		}
+		cfg.Issuer = i
 	}
 
 	return cfg, nil

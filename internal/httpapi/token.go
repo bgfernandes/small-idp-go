@@ -415,7 +415,7 @@ func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 	// and RFC 6749 §5.1 says it is optional if identical to the scope requested by the client, but
 	// we always include it when it's not empty to simplify the implementation
 	claims := jwt.AccessTokenClaims{
-		Iss:      s.issuer,
+		Iss:      s.issuer.String(),
 		Sub:      c.ID,
 		Aud:      resources,
 		Exp:      currentTime.Add(s.accessTokenLifetime).Unix(),

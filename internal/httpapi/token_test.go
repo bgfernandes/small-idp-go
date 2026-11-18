@@ -977,7 +977,7 @@ func TestTokenClientCredentialsSuccess(t *testing.T) {
 			}
 
 			// Verify the claims
-			if claims.Iss != apiServer.issuer {
+			if claims.Iss != apiServer.issuer.String() {
 				t.Errorf("got claims issuer %q, want %q", claims.Iss, apiServer.issuer)
 			}
 			if claims.Sub != c.ID {
