@@ -180,7 +180,7 @@ The cost is injected through the store constructor so integration tests run at `
 
 #### 2.2 Login page
 
-Decided 2026-11-16, before the session cookie and `/authorize` exist. The page is a thin caller of `UserStore.Authenticate` and lives in a new package, `internal/web`, which holds the browser-facing HTML (login now, consent and an error page later), parses its templates once at startup with `embed` and `template.ParseFS`, and exposes `Routes()`; `cmd/server` composes it with `httpapi` on one mux.
+Decided 2026-11-16, before the session cookie and `/authorize` exist. The page is a thin caller of `UserStore.Authenticate` and lives in a new package, `internal/web`, which holds the browser-facing HTML (login now, consent and an error page later), parses its embedded templates once at package init with `embed`, `template.ParseFS` and `template.Must` (a bad template is a programmer error, and since `html/template` runs its escaper on first execution, the `GET /login` test is what turns an escaping error into a test failure), and exposes its routes for `cmd/server` to compose with `httpapi` on one mux.
 
 Behaviour: `GET /login` renders the form; `POST /login` reads `r.PostForm` through the same `MaxBytesReader` pattern as the token endpoint, calls `Authenticate` with the submitted email verbatim (no format validation at login), and on success returns a 200 page with the email, a placeholder until the session cookie bullet.
 

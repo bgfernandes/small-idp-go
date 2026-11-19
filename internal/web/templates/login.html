@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Login</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                background-color: #f0f0f0;
+                margin: 0;
+                padding: 0;
+            }
+            .error {
+                color: red;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Login</h1>
+        <form action="{{.Action}}" method="post">
+            <label for="email">Email:</label>
+            <input type="email" id="email" name="email" required value="{{.Email}}">
+            <label for="password">Password:</label>
+            <input type="password" id="password" name="password" required>
+            <button type="submit">Login</button>
+        </form>
+        {{if .Error}}
+            <p class="error">{{.Error}}</p>
+        {{end}}
+    </body>
+</html>
