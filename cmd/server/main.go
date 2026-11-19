@@ -15,6 +15,7 @@ import (
 	"github.com/bgfernandes/small-idp-go/internal/httpapi"
 	"github.com/bgfernandes/small-idp-go/internal/jwk"
 	"github.com/bgfernandes/small-idp-go/internal/postgres"
+	"github.com/bgfernandes/small-idp-go/internal/web"
 )
 
 func main() {
@@ -66,9 +67,24 @@ func run() error {
 		return fmt.Errorf("new server: %w", err)
 	}
 
+	webServer, err := web.NewServer(
+		web.Config{
+			Issuer:            cfg.Issuer,
+			Log:               slog.With("component", "Web"),
+			UserAuthenticator: postgres.NewUserStore(db, postgres.DefaultPasswordHashCost),
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("new web server: %w", err)
+	}
+
+	mux := http.NewServeMux()
+	apiServer.AddRoutes(mux)
+	webServer.AddRoutes(mux)
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           apiServer.Routes(),
+		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

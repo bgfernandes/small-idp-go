@@ -62,6 +62,11 @@ func NewServer(
 // Routes returns the HTTP Web routes for the small IDP.
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /login", s.handleGetLogin)
+	s.AddRoutes(mux)
 	return mux
+}
+
+// AddRoutes adds the HTTP Web routes for the small IDP to the given mux.
+func (s *Server) AddRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /login", s.handleGetLogin)
 }
