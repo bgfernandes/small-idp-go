@@ -92,6 +92,14 @@ type testServerOptions struct {
 func newTestServer(t *testing.T, opts testServerOptions) *Server {
 	t.Helper()
 
+	if opts.issuer == "" {
+		opts.issuer = "http://localhost:8080"
+	}
+
+	if opts.userAuthenticator == nil {
+		opts.userAuthenticator = &fakeUserAuthenticator{}
+	}
+
 	i, err := issuer.Parse(opts.issuer)
 	if err != nil {
 		t.Fatalf("failed to parse issuer: %v", err)

@@ -1,9 +1,12 @@
 package web
 
 import (
-	"bytes"
+	"errors"
 	"log/slog"
+	"mime"
 	"net/http"
+
+	"github.com/bgfernandes/small-idp-go/internal/user"
 )
 
 type loginPageData struct {
@@ -12,26 +15,71 @@ type loginPageData struct {
 	Error  string
 }
 
-func (s *Server) handleGetLogin(w http.ResponseWriter, _ *http.Request) {
-	var buffer bytes.Buffer
-	err := templates.ExecuteTemplate(
-		&buffer,
+type successPageData struct {
+	Email string
+}
+
+func (s *Server) writeLoginPage(w http.ResponseWriter, status int, email, errorMessage string) {
+	s.writeHTMLTemplate(
+		w,
+		status,
 		"login.html",
-		loginPageData{Action: s.issuer.Path("login")},
+		loginPageData{
+			Action: s.issuer.Path("login"),
+			Email:  email,
+			Error:  errorMessage,
+		},
 	)
-	if err != nil {
-		s.log.Error("execute get login template", slog.Any("err", err))
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+}
+
+func (s *Server) handleGetLogin(w http.ResponseWriter, _ *http.Request) {
+	s.writeLoginPage(w, http.StatusOK, "", "")
+}
+
+const maxLoginRequestBytes = 1024 * 10 // 10KB
+
+func (s *Server) handlePostLogin(w http.ResponseWriter, r *http.Request) {
+	// Body type must be application/x-www-form-urlencoded
+	mimeType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mimeType != "application/x-www-form-urlencoded" {
+		s.writeLoginPage(w, http.StatusBadRequest, "", "Invalid content type.")
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Frame-Options", "DENY")
-	w.WriteHeader(http.StatusOK)
-
-	_, err = buffer.WriteTo(w)
-	if err != nil {
-		s.log.Debug("write get login template", slog.Any("err", err))
+	// Parse body with a MaxBytesReader to limit the size of the request body
+	r.Body = http.MaxBytesReader(w, r.Body, maxLoginRequestBytes)
+	if err := r.ParseForm(); err != nil {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+			s.writeLoginPage(w, http.StatusBadRequest, "", "Request body too large.")
+			return
+		}
+		s.writeLoginPage(w, http.StatusBadRequest, "", "Invalid form encoding.")
+		return
 	}
+
+	email := r.PostFormValue("email")
+	password := r.PostFormValue("password")
+
+	if email == "" || password == "" {
+		s.writeLoginPage(w, http.StatusOK, email, "Unknown user or wrong password.")
+		return
+	}
+
+	u, err := s.userAuthenticator.Authenticate(r.Context(), email, password)
+	if err != nil {
+		if errors.Is(err, user.ErrUnknownUserOrWrongPassword) {
+			s.writeLoginPage(w, http.StatusOK, email, "Unknown user or wrong password.")
+			return
+		}
+		s.log.Error("authenticate user", slog.Any("err", err))
+		s.writeLoginPage(w, http.StatusInternalServerError, email, "Internal Server Error.")
+		return
+	}
+
+	s.writeHTMLTemplate(
+		w,
+		http.StatusOK,
+		"success.html",
+		successPageData{Email: u.Email},
+	)
 }

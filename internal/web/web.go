@@ -2,6 +2,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"errors"
@@ -69,4 +70,33 @@ func (s *Server) Routes() http.Handler {
 // AddRoutes adds the HTTP Web routes for the small IDP to the given mux.
 func (s *Server) AddRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /login", s.handleGetLogin)
+	mux.HandleFunc("POST /login", s.handlePostLogin)
+}
+
+func (s *Server) writeHTMLTemplate(w http.ResponseWriter, status int, name string, data any) {
+	var buffer bytes.Buffer
+	err := templates.ExecuteTemplate(
+		&buffer,
+		name,
+		data,
+	)
+	if err != nil {
+		s.log.Error(
+			"execute HTML template",
+			slog.String("template", name),
+			slog.Any("err", err),
+		)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.WriteHeader(status)
+
+	_, err = buffer.WriteTo(w)
+	if err != nil {
+		s.log.Debug("write HTML template", slog.String("template", name), slog.Any("err", err))
+	}
 }
