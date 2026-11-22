@@ -121,6 +121,8 @@ Two proxy rules cover it:
 
 The second rule is needed because the RFC 8414 §3.1 location sits at the host root, outside the `/idp` prefix, so the first rule never matches it. Without it, clients that follow the RFC strictly get a 404; clients that append `/.well-known/oauth-authorization-server` to the issuer work with the first rule alone. Appending is vendor behaviour, not what RFC 8414 defines: §5 allows it only as a transition measure for the `openid-configuration` suffix. Observed on 2026-10-04, Okta serves both the appended and the inserted location, and two Keycloak-based deployments (Red Hat SSO, CERN) serve only the appended one.
 
+The proxy must also forward the original `Host` header rather than rewriting it to the upstream address. The browser-facing routes under `/login` reject cross-origin `POST`s with `http.CrossOriginProtection`, which falls back to comparing the `Origin` header with `Host` when a browser sends no `Sec-Fetch-Site` header; a rewritten `Host` would make that fallback refuse legitimate same-origin form posts from such browsers.
+
 ## Creating a client
 
 The token endpoint only serves registered clients. `cmd/clients` creates one directly in the database:

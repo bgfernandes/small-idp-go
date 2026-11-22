@@ -143,7 +143,7 @@ Go topics from the token endpoint work:
 Ships browser login.
 
 - [x] User store in PostgreSQL: types in `internal/user`, `postgres.UserStore` beside the client store, a `goose` migration for `users`, users created with `cmd/users`. Details in 2.1.
-- [ ] Minimal HTML login page via `html/template`.
+- [x] Minimal HTML login page via `html/template`.
 - [ ] `GET /authorize` (RFC 6749 §4.1): validate `client_id`, `redirect_uri` exact match, `response_type=code`, `scope`, `state`; require PKCE `code_challenge` with `S256` (RFC 7636). Reject `plain`.
 - [ ] Login and consent pages; consent skippable per client for first-party apps.
 - [ ] Authorization code: single-use, short TTL, bound to `client_id`, `redirect_uri`, `code_challenge`, `nonce`.

@@ -25,6 +25,7 @@ type UserAuthenticator interface {
 
 // Server is the web server for the small IDP.
 type Server struct {
+	csrf              *http.CrossOriginProtection
 	issuer            issuer.Issuer
 	log               *slog.Logger
 	userAuthenticator UserAuthenticator
@@ -53,7 +54,13 @@ func NewServer(
 		return nil, errors.New("Config.UserAuthenticator is required")
 	}
 
+	// Initialize the CSRF protection middleware. Cross-origin requests are currently detected with
+	// the `Sec-Fetch-Site` header, available in all browsers since 2023, or by comparing the
+	// hostname of the `Origin` header with the `Host` header.
+	csrf := http.NewCrossOriginProtection()
+
 	return &Server{
+		csrf:              csrf,
 		issuer:            config.Issuer,
 		log:               config.Log,
 		userAuthenticator: config.UserAuthenticator,
@@ -69,8 +76,11 @@ func (s *Server) Routes() http.Handler {
 
 // AddRoutes adds the HTTP Web routes for the small IDP to the given mux.
 func (s *Server) AddRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /login", s.handleGetLogin)
-	mux.HandleFunc("POST /login", s.handlePostLogin)
+	// The GET, HEAD, and OPTIONS methods are considered safe methods and are always allowed by the
+	// CSRF protection, but it's not harmful to just apply it to all routes in the web.Server by
+	// convention.
+	mux.Handle("GET /login", s.csrf.Handler(http.HandlerFunc(s.handleGetLogin)))
+	mux.Handle("POST /login", s.csrf.Handler(http.HandlerFunc(s.handlePostLogin)))
 }
 
 func (s *Server) writeHTMLTemplate(w http.ResponseWriter, status int, name string, data any) {

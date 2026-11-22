@@ -328,3 +328,103 @@ func TestPostLogin(t *testing.T) {
 		})
 	}
 }
+
+func TestPostLoginCSRFProtection(t *testing.T) {
+	t.Parallel()
+
+	webServer := newTestServer(t, testServerOptions{
+		userAuthenticator: &fakeUserAuthenticator{
+			authenticate: func(ctx context.Context, email, password string) (user.User, error) {
+				if email != "user@example.com" || password != "correct-password" {
+					return user.User{}, user.ErrUnknownUserOrWrongPassword
+				}
+				return user.User{Email: "user@example.com"}, nil
+			},
+		},
+	})
+
+	tests := []struct {
+		name         string
+		secFetchSite string
+		origin       string
+		host         string
+		wantStatus   int
+	}{
+		{
+			name:         "same-origin",
+			secFetchSite: "same-origin",
+			origin:       "https://idp.example.com",
+			host:         "idp.example.com",
+			wantStatus:   http.StatusOK,
+		},
+		{
+			name:         "same-site",
+			secFetchSite: "same-site",
+			origin:       "https://idp.example.com",
+			host:         "api.example.com",
+			wantStatus:   http.StatusForbidden,
+		},
+		{
+			name:         "cross-site",
+			secFetchSite: "cross-site",
+			origin:       "https://other-site.com",
+			host:         "idp.example.com",
+			wantStatus:   http.StatusForbidden,
+		},
+		{
+			name:         "none",
+			secFetchSite: "none",
+			origin:       "https://idp.example.com",
+			host:         "idp.example.com",
+			wantStatus:   http.StatusOK,
+		},
+		{
+			name:         "no secfetchsite with matching origin",
+			secFetchSite: "",
+			origin:       "https://idp.example.com",
+			host:         "idp.example.com",
+			wantStatus:   http.StatusOK,
+		},
+		{
+			name:         "no secfetchsite with non-matching origin",
+			secFetchSite: "",
+			origin:       "https://other-site.com",
+			host:         "idp.example.com",
+			wantStatus:   http.StatusForbidden,
+		},
+		{
+			name:         "no secfetchsite and no origin",
+			secFetchSite: "",
+			origin:       "",
+			host:         "idp.example.com",
+			wantStatus:   http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(
+				url.Values{
+					"email":    {"user@example.com"},
+					"password": {"correct-password"},
+				}.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
+			if tt.secFetchSite != "" {
+				req.Header.Set("Sec-Fetch-Site", tt.secFetchSite)
+			}
+			if tt.origin != "" {
+				req.Header.Set("Origin", tt.origin)
+			}
+			req.Host = tt.host
+
+			rec := httptest.NewRecorder()
+			webServer.Routes().ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("got code %d, want %d", rec.Code, tt.wantStatus)
+			}
+		})
+	}
+}
