@@ -26,20 +26,25 @@ var SupportedGrantTypes = []GrantType{
 // Client is a OIDC/OAuth2 client.
 type Client struct {
 	ID         string
-	Name       string
-	GrantTypes []GrantType
-	Scopes     []string
 	Audiences  []string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	GrantTypes []GrantType
+	Name       string
+	// Public is true if the client is public, and doesn't have a secret.
+	Public          bool
+	RedirectionURIs []string
+	Scopes          []string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // CreateParams is the parameters for creating a client.
 type CreateParams struct {
-	Audiences  []string
-	GrantTypes []GrantType
-	Name       string
-	Scopes     []string
+	Audiences       []string
+	GrantTypes      []GrantType
+	Name            string
+	Public          bool
+	RedirectionURIs []string
+	Scopes          []string
 }
 
 // ErrNotFound is returned when a client is not found.

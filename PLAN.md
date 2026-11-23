@@ -60,17 +60,21 @@ Schema as `goose` SQL migrations embedded with `embed` and applied at startup th
 
 Each consumer defines the interface it needs (`cmd/clients` a one-method `Store`, `httpapi` a one-method `ClientAuthenticator`), and the wiring call in `cmd/server` is the compile-time check that `postgres.ClientStore` satisfies them.
 
-Record: `client_id`; SHA-256 hash of a `crypto/rand` secret, compared with `crypto/subtle.ConstantTimeCompare` (a fast hash is enough for high-entropy secrets; bcrypt is for the phase 2 user passwords, which are low entropy); allowed grant types; allowed scopes (RFC 6749 §3.3); allowed audiences, because RFC 9068 §3 makes `aud` name the resource server, not the client: taken from the RFC 8707 `resource` parameter when sent, otherwise the client's registered audiences.
+Record: `client_id`; SHA-256 hash of a `crypto/rand` secret, compared with `crypto/subtle.ConstantTimeCompare` (a fast hash is enough for high-entropy secrets; bcrypt is for the phase 2 user passwords, which are low entropy); allowed grant types; allowed scopes (RFC 6749 §3.3); allowed audiences, because RFC 9068 §3 makes `aud` name the resource server, not the client: taken from the RFC 8707 `resource` parameter when sent, otherwise the client's registered audiences; registered redirection URIs (phase 2).
+
+Public clients (RFC 6749 §2.1) were added in phase 2 for the authorization code grant: the secret hash column is nullable, a public client is one whose hash is NULL, and `Client.Public` is derived from that in `scanClient` rather than stored twice. The hash goes through `sql.Null[string]`: an invalid value encodes as NULL and a NULL scans without the error a plain `string` would raise. `Authenticate` rejects a public client with the same error as a wrong secret, since it has no secret to present.
 
 `client_id` is `text` (RFC 6749 §2.2 defines it as a unique string with no format; a `uuid` column would turn an unknown ID into a query error instead of `sql.ErrNoRows`). The store generates the ID and the secret with `crypto/rand.Text` (26 base32 characters, 130 bits) and stores the hex SHA-256 of the secret, unsalted: a salt defends low-entropy input against precomputed tables, which does not apply here.
 
 Validation runs on the write path in the store's `Create`, not at startup, so rows can be added while the server runs: name required; at least one supported grant type, no duplicates; scope tokens per RFC 6749 §3.3 (printable ASCII except space, double quote and backslash), no duplicates, an empty list allowed because scope is optional; at least one audience, each an absolute URI without fragment or query (RFC 8707 §2), no duplicates.
 
+Phase 2 added to that list: `client_credentials` refused for a public client (RFC 6749 §4.4); at least one redirection URI when `authorization_code` is allowed (§3.1.2.2 requires registration for public clients and recommends it for all), each `http` or `https` with a non-empty `Hostname()` and no fragment (§3.1.2), a query allowed since §3.1.2 permits one and matching is exact, no duplicates. A nil slice is normalised to empty before the insert: pgx encodes nil as NULL, which the `NOT NULL` column rejects.
+
 Names are unique case-insensitively through a unique index on `lower(name)` (a `UNIQUE` constraint cannot take an expression); the SQLSTATE 23505 violation on that index is translated into `InvalidClientError` with no pre-insert check, so the index is the only source of truth and concurrent creates cannot both succeed.
 
 `Authenticate` hashes the presented secret, compares with `subtle.ConstantTimeCompare`, and returns one error for an unknown ID and a wrong secret alike (RFC 6749 §5.2 `invalid_client` without an enumeration oracle); the not-found path runs a dummy compare, which equalises the hash comparison but not the index miss, a mitigation that matters more with bcrypt.
 
-Clients are created with `cmd/clients create`, a `flag`-based tool with repeated `-grant-type`, `-audience` and `-scope` flags that calls `ClientStore.Create` and prints the secret once. Usage errors exit 2, rejected clients and database failures exit 1, classified in `main` with `errors.Is` on a local sentinel and `errors.AsType` on `InvalidClientError`.
+Clients are created with `cmd/clients create`, a `flag`-based tool with repeated `-grant-type`, `-audience`, `-scope` and `-redirection-uri` flags and a `-public` boolean that calls `ClientStore.Create` and prints the secret once, for confidential clients only. Usage errors exit 2, rejected clients and database failures exit 1, classified in `main` with `errors.Is` on a local sentinel and `errors.AsType` on `InvalidClientError`.
 
 The tool is deliberately untested: a local development utility, documented in the README, to be rewritten in phase 3 as a client of the admin API, so it no longer needs database access. Configuration loading moved to `internal/config` so both binaries share it.
 
@@ -144,6 +148,7 @@ Ships browser login.
 
 - [x] User store in PostgreSQL: types in `internal/user`, `postgres.UserStore` beside the client store, a `goose` migration for `users`, users created with `cmd/users`. Details in 2.1.
 - [x] Minimal HTML login page via `html/template`.
+- [x] Client registry: public clients (no secret, `client_credentials` refused) and registered redirection URIs, required for `authorization_code`. The token endpoint answers `unsupported_grant_type` for that grant until 2.3 lands. Details in 1.3.
 - [ ] `GET /authorize` (RFC 6749 §4.1): validate `client_id`, `redirect_uri` exact match, `response_type=code`, `scope`, `state`; require PKCE `code_challenge` with `S256` (RFC 7636). Reject `plain`.
 - [ ] Login and consent pages; consent skippable per client for first-party apps.
 - [ ] Authorization code: single-use, short TTL, bound to `client_id`, `redirect_uri`, `code_challenge`, `nonce`.

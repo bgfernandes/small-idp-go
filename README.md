@@ -135,7 +135,19 @@ go run ./cmd/clients create \
   -scope read -scope write
 ```
 
-`-grant-type`, `-audience` and `-scope` can be repeated. The tool prints the client ID and the secret once; only the SHA-256 hash of the secret is stored, so a lost secret means a new client. Names are unique, compared case-insensitively. The tool connects with `SMALLIDP_DATABASE_URL` and expects the schema to be in place, which the server does at startup.
+A client for the authorization code flow registers its redirection URIs, and a public client (a browser or native app that cannot keep a secret, RFC 6749 §2.1) adds `-public`:
+
+```sh
+go run ./cmd/clients create \
+  -name spa \
+  -public \
+  -grant-type authorization_code \
+  -redirection-uri http://localhost:3000/callback \
+  -audience https://api.example.com \
+  -scope read
+```
+
+`-grant-type`, `-audience`, `-scope` and `-redirection-uri` can be repeated. The tool prints the client ID and, for a confidential client, the secret once; only the SHA-256 hash of the secret is stored, so a lost secret means a new client. A public client has no secret and cannot use `client_credentials` (RFC 6749 §4.4). A client with `authorization_code` needs at least one redirection URI: absolute, `http` or `https`, with a host and no fragment (RFC 6749 §3.1.2); a query component is allowed. Names are unique, compared case-insensitively. The tool connects with `SMALLIDP_DATABASE_URL` and expects the schema to be in place, which the server does at startup.
 
 Exit codes follow the usual convention: 0 on success, 1 when the client was rejected or the database failed, 2 on a usage error. The result goes to stdout, diagnostics go to stderr. `go run ./cmd/clients -h` and `go run ./cmd/clients create -h` print the usage.
 

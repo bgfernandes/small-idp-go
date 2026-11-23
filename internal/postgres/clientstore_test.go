@@ -4,6 +4,7 @@ package postgres_test
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"reflect"
@@ -35,10 +36,11 @@ func TestClientStoreCreateAndGetClient(t *testing.T) {
 	store := postgres.NewClientStore(db)
 
 	c, secret, err := store.Create(t.Context(), client.CreateParams{
-		Audiences:  []string{"https://example.com"},
-		GrantTypes: []client.GrantType{client.GrantTypeClientCredentials},
-		Name:       "test-client",
-		Scopes:     []string{"openid"},
+		Audiences:       []string{"https://example.com"},
+		GrantTypes:      []client.GrantType{client.GrantTypeClientCredentials},
+		Name:            "test-client",
+		RedirectionURIs: []string{"http://localhost:3000/callback?with=query"},
+		Scopes:          []string{"openid"},
 	})
 	if err != nil {
 		t.Fatalf("got error %v, want nil", err)
@@ -58,13 +60,15 @@ func TestClientStoreCreateAndGetClient(t *testing.T) {
 	}
 
 	wantClient := client.Client{
-		ID:         c.ID,
-		CreatedAt:  c.CreatedAt,
-		UpdatedAt:  c.UpdatedAt,
-		Name:       "test-client",
-		GrantTypes: []client.GrantType{client.GrantTypeClientCredentials},
-		Scopes:     []string{"openid"},
-		Audiences:  []string{"https://example.com"},
+		ID:              c.ID,
+		Audiences:       []string{"https://example.com"},
+		GrantTypes:      []client.GrantType{client.GrantTypeClientCredentials},
+		Name:            "test-client",
+		Public:          false,
+		RedirectionURIs: []string{"http://localhost:3000/callback?with=query"},
+		Scopes:          []string{"openid"},
+		CreatedAt:       c.CreatedAt,
+		UpdatedAt:       c.UpdatedAt,
 	}
 
 	if !reflect.DeepEqual(c, wantClient) {
@@ -94,6 +98,78 @@ func TestClientStoreCreateAndGetClient(t *testing.T) {
 	secretHash := hex.EncodeToString(secretHashBytes[:])
 	if hash != secretHash {
 		t.Fatalf("got hash %s, want %s", hash, secretHash)
+	}
+}
+
+func TestClientStoreCreateAndGetPublicClient(t *testing.T) {
+	t.Parallel()
+
+	db := pgtest.CreateTestDatabaseAndRunMigrations(t, testDatabasePrefix)
+
+	store := postgres.NewClientStore(db)
+
+	c, secret, err := store.Create(t.Context(), client.CreateParams{
+		Audiences:       []string{"https://example.com"},
+		GrantTypes:      []client.GrantType{client.GrantTypeAuthorizationCode},
+		Name:            "test-public-client",
+		Public:          true,
+		RedirectionURIs: []string{"http://localhost:3000/callback?with=query"},
+		Scopes:          []string{"openid"},
+	})
+	if err != nil {
+		t.Fatalf("got error %v, want nil", err)
+	}
+
+	if c.ID == "" {
+		t.Fatalf("got client ID empty, want non-empty")
+	}
+	if secret != "" {
+		t.Errorf("got secret %s, want empty", secret)
+	}
+	if c.CreatedAt.IsZero() {
+		t.Errorf("got client created at zero, want non-zero")
+	}
+	if c.UpdatedAt.IsZero() {
+		t.Errorf("got client updated at zero, want non-zero")
+	}
+
+	wantClient := client.Client{
+		ID:              c.ID,
+		Audiences:       []string{"https://example.com"},
+		GrantTypes:      []client.GrantType{client.GrantTypeAuthorizationCode},
+		Name:            "test-public-client",
+		Public:          true,
+		RedirectionURIs: []string{"http://localhost:3000/callback?with=query"},
+		Scopes:          []string{"openid"},
+		CreatedAt:       c.CreatedAt,
+		UpdatedAt:       c.UpdatedAt,
+	}
+
+	if !reflect.DeepEqual(c, wantClient) {
+		t.Fatalf("got client %+v, want %+v", c, wantClient)
+	}
+
+	gotClient, err := store.Get(t.Context(), c.ID)
+	if err != nil {
+		t.Fatalf("got error %v, want nil", err)
+	}
+	if !reflect.DeepEqual(gotClient, wantClient) {
+		t.Fatalf("got client from get %+v, want %+v", gotClient, wantClient)
+	}
+
+	// check that the secret hash is null
+	query := `
+		SELECT secret_hash
+		FROM clients
+		WHERE id = $1
+	`
+	var hash sql.Null[string]
+	err = db.QueryRowContext(t.Context(), query, c.ID).Scan(&hash)
+	if err != nil {
+		t.Fatalf("got error %v, want nil", err)
+	}
+	if hash.Valid {
+		t.Errorf("got secret hash %s, want null", hash.V)
 	}
 }
 
@@ -292,6 +368,121 @@ func TestClientStoreCreateInvalidParams(t *testing.T) {
 				Reason: "audiences cannot have duplicates",
 			},
 		},
+		{
+			name: "authorization code client with no redirection URIs",
+			params: client.CreateParams{
+				Audiences:  []string{"https://example.com"},
+				GrantTypes: []client.GrantType{client.GrantTypeAuthorizationCode},
+				Name:       "test-client",
+				Scopes:     []string{"openid"},
+			},
+			wantInvalidError: &client.InvalidClientError{
+				Field:  "RedirectionURIs",
+				Reason: "redirection URIs are required for authorization code clients",
+			},
+		},
+		{
+			name: "empty redirection URI",
+			params: client.CreateParams{
+				Audiences:       []string{"https://example.com"},
+				GrantTypes:      []client.GrantType{client.GrantTypeAuthorizationCode},
+				Name:            "test-client",
+				RedirectionURIs: []string{""},
+				Scopes:          []string{"openid"},
+			},
+			wantInvalidError: &client.InvalidClientError{
+				Field:  "RedirectionURIs",
+				Reason: "redirection URI cannot be empty",
+			},
+		},
+		{
+			name: "invalid redirection URI",
+			params: client.CreateParams{
+				Audiences:       []string{"https://example.com"},
+				GrantTypes:      []client.GrantType{client.GrantTypeAuthorizationCode},
+				Name:            "test-client",
+				RedirectionURIs: []string{":::invaliduri"},
+				Scopes:          []string{"openid"},
+			},
+			wantInvalidError: &client.InvalidClientError{
+				Field:  "RedirectionURIs",
+				Reason: "invalid redirection URI: :::invaliduri",
+			},
+		},
+		{
+			name: "invalid redirection URI with no host",
+			params: client.CreateParams{
+				Audiences:       []string{"https://example.com"},
+				GrantTypes:      []client.GrantType{client.GrantTypeAuthorizationCode},
+				Name:            "test-client",
+				RedirectionURIs: []string{"https://:8080/path"},
+				Scopes:          []string{"openid"},
+			},
+			wantInvalidError: &client.InvalidClientError{
+				Field:  "RedirectionURIs",
+				Reason: "redirection URI must have a host: https://:8080/path",
+			},
+		},
+		{
+			name: "redirection URI with no scheme",
+			params: client.CreateParams{
+				Audiences:       []string{"https://example.com"},
+				GrantTypes:      []client.GrantType{client.GrantTypeAuthorizationCode},
+				Name:            "test-client",
+				RedirectionURIs: []string{"invalid-uri.com/path"},
+				Scopes:          []string{"openid"},
+			},
+			wantInvalidError: &client.InvalidClientError{
+				Field:  "RedirectionURIs",
+				Reason: "redirection URI must be an https or http URI: invalid-uri.com/path",
+			},
+		},
+		{
+			name: "redirection URI with fragment",
+			params: client.CreateParams{
+				Audiences:       []string{"https://example.com"},
+				GrantTypes:      []client.GrantType{client.GrantTypeAuthorizationCode},
+				Name:            "test-client",
+				RedirectionURIs: []string{"https://example.com/path#fragment"},
+				Scopes:          []string{"openid"},
+			},
+			wantInvalidError: &client.InvalidClientError{
+				Field:  "RedirectionURIs",
+				Reason: "redirection URI cannot have a fragment: https://example.com/path#fragment",
+			},
+		},
+		{
+			name: "public client with client credentials grant type",
+			params: client.CreateParams{
+				Audiences: []string{"https://example.com"},
+				GrantTypes: []client.GrantType{
+					client.GrantTypeClientCredentials,
+					client.GrantTypeAuthorizationCode,
+				},
+				Name:            "test-client",
+				Public:          true,
+				RedirectionURIs: []string{"https://example.com/path"},
+				Scopes:          []string{"openid"},
+			},
+			wantInvalidError: &client.InvalidClientError{
+				Field:  "GrantTypes",
+				Reason: "client_credentials grant type is not allowed for public clients",
+			},
+		},
+		{
+			name: "duplicate redirection URIs",
+			params: client.CreateParams{
+				Audiences:       []string{"https://example.com"},
+				GrantTypes:      []client.GrantType{client.GrantTypeAuthorizationCode},
+				Name:            "test-client",
+				RedirectionURIs: []string{"https://example.com/path", "https://example.com/path"},
+				Scopes:          []string{"openid"},
+			},
+			wantInvalidError: &client.InvalidClientError{
+				Field:  "RedirectionURIs",
+				Reason: "redirection URIs cannot have duplicates",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -337,13 +528,15 @@ func TestClientStoreCreateClientWithNoScopes(t *testing.T) {
 	}
 
 	wantClient := client.Client{
-		ID:         c.ID,
-		CreatedAt:  c.CreatedAt,
-		UpdatedAt:  c.UpdatedAt,
-		Name:       "test-client",
-		GrantTypes: []client.GrantType{client.GrantTypeClientCredentials},
-		Scopes:     []string{},
-		Audiences:  []string{"https://example.com"},
+		ID:              c.ID,
+		Audiences:       []string{"https://example.com"},
+		GrantTypes:      []client.GrantType{client.GrantTypeClientCredentials},
+		Name:            "test-client",
+		Public:          false,
+		RedirectionURIs: []string{},
+		Scopes:          []string{},
+		CreatedAt:       c.CreatedAt,
+		UpdatedAt:       c.UpdatedAt,
 	}
 	if !reflect.DeepEqual(c, wantClient) {
 		t.Fatalf("got client %+v, want %+v", c, wantClient)
@@ -496,6 +689,18 @@ func TestClientStoreAuthenticateUnknownClientOrWrongSecret(t *testing.T) {
 		t.Fatalf("got error %v, want nil", err)
 	}
 
+	publicClient, _, err := store.Create(t.Context(), client.CreateParams{
+		Audiences:       []string{"https://example.com"},
+		GrantTypes:      []client.GrantType{client.GrantTypeAuthorizationCode},
+		Name:            "test-public-client",
+		Public:          true,
+		RedirectionURIs: []string{"http://localhost:3000/callback"},
+		Scopes:          []string{"openid"},
+	})
+	if err != nil {
+		t.Fatalf("got error %v, want nil", err)
+	}
+
 	tests := []struct {
 		name     string
 		clientID string
@@ -520,6 +725,11 @@ func TestClientStoreAuthenticateUnknownClientOrWrongSecret(t *testing.T) {
 			name:     "another client's secret",
 			clientID: clientA.ID,
 			secret:   secretB,
+		},
+		{
+			name:     "public client",
+			clientID: publicClient.ID,
+			secret:   "secret",
 		},
 	}
 

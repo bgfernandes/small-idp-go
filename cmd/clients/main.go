@@ -101,11 +101,18 @@ func createClient(cfg config.Config) error {
 	var audiences stringSliceVar
 	var grantTypes stringSliceVar
 	var scopes stringSliceVar
+	var redirectionURIs stringSliceVar
 
 	name := fs.String("name", "", "Name of the client")
 	fs.Var(&audiences, "audience", "Audience of the client (can be repeated)")
 	fs.Var(&grantTypes, "grant-type", "Grant type of the client (can be repeated)")
 	fs.Var(&scopes, "scope", "Scope of the client (can be repeated)")
+	fs.Var(&redirectionURIs, "redirection-uri", "Redirection URI of the client (can be repeated)")
+	public := fs.Bool(
+		"public",
+		false,
+		"Whether the client is public. If true, the client will not have a secret.",
+	)
 
 	err := fs.Parse(os.Args[2:])
 	if err != nil {
@@ -131,10 +138,12 @@ func createClient(cfg config.Config) error {
 	}()
 
 	c, secret, err := store.Create(ctx, client.CreateParams{
-		Name:       *name,
-		Audiences:  audiences,
-		GrantTypes: typedGrantTypes,
-		Scopes:     scopes,
+		Name:            *name,
+		Audiences:       audiences,
+		GrantTypes:      typedGrantTypes,
+		Public:          *public,
+		RedirectionURIs: redirectionURIs,
+		Scopes:          scopes,
 	})
 	if err != nil {
 		return fmt.Errorf("create client: %w", err)
@@ -142,6 +151,8 @@ func createClient(cfg config.Config) error {
 
 	fmt.Println("Client created successfully")
 	fmt.Println("Client ID:", c.ID)
-	fmt.Println("Client Secret:", secret)
+	if !c.Public {
+		fmt.Println("Client Secret:", secret)
+	}
 	return nil
 }
