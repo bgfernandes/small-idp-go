@@ -33,6 +33,8 @@ func TestOAuthMetadataBody(t *testing.T) {
 					tokenEndpointAuthMethodBasic,
 					tokenEndpointAuthMethodPost,
 				},
+				ResponseTypesSupported: []string{"code"},
+				AuthorizationEndpoint:  "http://localhost:8080/authorize",
 			},
 		},
 		{
@@ -50,6 +52,8 @@ func TestOAuthMetadataBody(t *testing.T) {
 					tokenEndpointAuthMethodBasic,
 					tokenEndpointAuthMethodPost,
 				},
+				ResponseTypesSupported: []string{"code"},
+				AuthorizationEndpoint:  "http://localhost:8080/tenant/authorize",
 			},
 		},
 		{
@@ -67,6 +71,8 @@ func TestOAuthMetadataBody(t *testing.T) {
 					tokenEndpointAuthMethodBasic,
 					tokenEndpointAuthMethodPost,
 				},
+				ResponseTypesSupported: []string{"code"},
+				AuthorizationEndpoint:  "https://idp.example.com/a/b/authorize",
 			},
 		},
 	}
@@ -129,18 +135,19 @@ func TestOAuthMetadataExactKeys(t *testing.T) {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	if len(got) != 5 {
-		t.Fatalf("got %d keys, want 5", len(got))
+	if len(got) != 7 {
+		t.Fatalf("got %d keys, want 7", len(got))
 	}
 
-	// assert the keys are exactly these five: issuer, token_endpoint, jwks_uri,
-	// grant_types_supported, token_endpoint_auth_methods_supported
+	// assert the keys are exactly these
 	wantKeys := []string{
 		"issuer",
 		"token_endpoint",
 		"jwks_uri",
 		"grant_types_supported",
 		"token_endpoint_auth_methods_supported",
+		"response_types_supported",
+		"authorization_endpoint",
 	}
 	for _, key := range wantKeys {
 		if got[key] == nil {
