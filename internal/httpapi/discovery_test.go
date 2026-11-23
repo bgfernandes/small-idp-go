@@ -26,6 +26,7 @@ func TestOAuthMetadataBody(t *testing.T) {
 				TokenEndpoint: "http://localhost:8080/token",
 				JWKSURI:       "http://localhost:8080/jwks",
 				GrantTypesSupported: []string{
+					string(client.GrantTypeAuthorizationCode),
 					string(client.GrantTypeClientCredentials),
 				},
 				TokenEndpointAuthMethodsSupported: []string{
@@ -42,6 +43,7 @@ func TestOAuthMetadataBody(t *testing.T) {
 				TokenEndpoint: "http://localhost:8080/tenant/token",
 				JWKSURI:       "http://localhost:8080/tenant/jwks",
 				GrantTypesSupported: []string{
+					string(client.GrantTypeAuthorizationCode),
 					string(client.GrantTypeClientCredentials),
 				},
 				TokenEndpointAuthMethodsSupported: []string{
@@ -58,6 +60,7 @@ func TestOAuthMetadataBody(t *testing.T) {
 				TokenEndpoint: "https://idp.example.com/a/b/token",
 				JWKSURI:       "https://idp.example.com/a/b/jwks",
 				GrantTypesSupported: []string{
+					string(client.GrantTypeAuthorizationCode),
 					string(client.GrantTypeClientCredentials),
 				},
 				TokenEndpointAuthMethodsSupported: []string{

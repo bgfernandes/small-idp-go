@@ -11,12 +11,15 @@ import (
 type GrantType string
 
 const (
+	// GrantTypeAuthorizationCode is the grant type for authorization code.
+	GrantTypeAuthorizationCode GrantType = "authorization_code"
 	// GrantTypeClientCredentials is the grant type for client credentials.
 	GrantTypeClientCredentials GrantType = "client_credentials"
 )
 
 // SupportedGrantTypes is a list of supported grant types.
 var SupportedGrantTypes = []GrantType{
+	GrantTypeAuthorizationCode,
 	GrantTypeClientCredentials,
 }
 

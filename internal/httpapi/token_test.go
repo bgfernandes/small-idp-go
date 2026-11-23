@@ -514,7 +514,12 @@ func TestTokenInvalidGrantType(t *testing.T) {
 	apiServer, _ := newTestServer(t, testServerOptions{
 		clientAuthenticator: &fakeClientAuthenticator{
 			authenticate: func(ctx context.Context, clientID, clientSecret string) (client.Client, error) {
-				return client.Client{GrantTypes: []client.GrantType{"some_grant_type"}}, nil
+				return client.Client{
+					GrantTypes: []client.GrantType{
+						"some_grant_type",
+						client.GrantTypeAuthorizationCode,
+					},
+				}, nil
 			},
 		},
 	})
@@ -542,6 +547,12 @@ func TestTokenInvalidGrantType(t *testing.T) {
 			grantType:       "client_credentials",
 			wantCode:        "unauthorized_client",
 			wantDescription: "unauthorized grant_type",
+		},
+		{
+			name:            "temporary unsupported grant type authorization code",
+			grantType:       "authorization_code",
+			wantCode:        "unsupported_grant_type",
+			wantDescription: "only grant_type client_credentials is supported",
 		},
 	}
 

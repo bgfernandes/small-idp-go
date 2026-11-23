@@ -387,9 +387,19 @@ func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = parseGrantType(r, c)
+	grantType, err := parseGrantType(r, c)
 	if err != nil {
 		s.writeTokenError(w, err)
+		return
+	}
+	// currently only client_credentials grant type is supported, authorization_code clients can be
+	// registered but using this grant will return unsupported_grant_type error
+	if grantType != client.GrantTypeClientCredentials {
+		s.writeTokenError(w, &oauthError{
+			status:      http.StatusBadRequest,
+			code:        "unsupported_grant_type",
+			description: "only grant_type client_credentials is supported",
+		})
 		return
 	}
 
@@ -404,9 +414,6 @@ func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 		s.writeTokenError(w, err)
 		return
 	}
-
-	// TODO: currently this handler only supports client_credentials, in the future, branched off
-	// based on grant_type from here
 
 	currentTime := s.now()
 	// RFC 9068 §2.2 requires the following claims: iss, exp, aud, sub, client_id, iat, jti
