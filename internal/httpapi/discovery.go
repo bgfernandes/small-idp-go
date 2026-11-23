@@ -37,9 +37,9 @@ func (s *Server) handleOAuthAuthorizationServer(w http.ResponseWriter, _ *http.R
 	// for a server with no authorization endpoint, so we omit it for now.
 	s.writeJSON(w, http.StatusOK, authorizationServerMetadata{
 		Issuer:              s.issuer.String(),
-		TokenEndpoint:       s.tokenEndpoint,
-		JWKSURI:             s.jwksURI,
 		GrantTypesSupported: grantTypesSupported,
+		JWKSURI:                s.issuer.URL("jwks"),
+		TokenEndpoint:          s.issuer.URL("token"),
 		TokenEndpointAuthMethodsSupported: []string{
 			tokenEndpointAuthMethodBasic,
 			tokenEndpointAuthMethodPost,
