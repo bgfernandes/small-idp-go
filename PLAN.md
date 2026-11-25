@@ -34,9 +34,9 @@ Ships a server that can mint verifiable access tokens for machine clients.
 
 #### 1.1 OAuth authorization server metadata
 
-Fields: `issuer` (the configured string verbatim; RFC 8414 §3.3 makes clients discard the document if it differs), `token_endpoint`, `jwks_uri`, `grant_types_supported: ["client_credentials"]`, and `token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post"]`. The last two must be explicit because their defaults when omitted (`["authorization_code", "implicit"]` and `client_secret_basic` alone) would be false.
+Fields: `issuer` (the configured string verbatim; RFC 8414 §3.3 makes clients discard the document if it differs), `token_endpoint`, `jwks_uri`, `grant_types_supported` (derived from `client.SupportedGrantTypes`), and `token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post"]`. The last two must be explicit because their defaults when omitted (`["authorization_code", "implicit"]` and `client_secret_basic` alone) would be false.
 
-`authorization_endpoint` is omitted, which §2 allows when no supported grant uses it. `response_types_supported` is REQUIRED by §2, but the server supports no response types and §3.2 says claims with zero elements MUST be omitted; the spec contradicts itself here, so the field is omitted in this phase with a comment saying why.
+In phase 1 `authorization_endpoint` was omitted, which §2 allows when no supported grant uses it, and so was `response_types_supported`: it is REQUIRED by §2, but the server supported no response types and §3.2 says claims with zero elements MUST be omitted, so the spec contradicted itself. Phase 2 added `authorization_endpoint` (from `Issuer.URL`, so it follows a path issuer) and `response_types_supported: ["code"]` together with `GET /authorize`, which resolves the contradiction.
 
 Neither spec fixes the JWKS path; only the metadata documents are well-known, and the JWKS lives wherever `jwks_uri` says.
 
