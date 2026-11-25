@@ -320,6 +320,7 @@ func TestAuthorizeRedirectedErrors(t *testing.T) {
 							"https://example.com/a/b",
 							"https://example.com/a?query=b%20c",
 						},
+						Scopes: []string{"openid", "profile", "email"},
 					}, nil
 				}
 				if id == "unauthorized-client-id" {
@@ -333,6 +334,7 @@ func TestAuthorizeRedirectedErrors(t *testing.T) {
 							"https://example.com/a/b",
 							"https://example.com/a?query=b%20c",
 						},
+						Scopes: []string{"openid", "profile", "email"},
 					}, nil
 				}
 				return client.Client{}, client.ErrNotFound
@@ -486,6 +488,38 @@ func TestAuthorizeRedirectedErrors(t *testing.T) {
 			wantError: authorizeError{
 				code:        "unsupported_response_type",
 				description: "response_type must be 'code'",
+			},
+			wantState: "some-state",
+		},
+		{
+			name: "repeated scope parameter",
+			query: url.Values{
+				"client_id":     {"correct-client-id"},
+				"response_type": {"code"},
+				"redirect_uri":  {"https://example.com/a"},
+				"scope":         {"openid", "profile"},
+				"state":         {"some-state"},
+			},
+			wantRedirectURL: "https://example.com/a",
+			wantError: authorizeError{
+				code:        "invalid_request",
+				description: "duplicate scope parameter",
+			},
+			wantState: "some-state",
+		},
+		{
+			name: "unsupported scope",
+			query: url.Values{
+				"client_id":     {"correct-client-id"},
+				"response_type": {"code"},
+				"redirect_uri":  {"https://example.com/a"},
+				"scope":         {"unsupported-scope"},
+				"state":         {"some-state"},
+			},
+			wantRedirectURL: "https://example.com/a",
+			wantError: authorizeError{
+				code:        "invalid_scope",
+				description: "unknown or malformed scope",
 			},
 			wantState: "some-state",
 		},

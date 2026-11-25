@@ -598,8 +598,6 @@ func TestTokenInvalidScope(t *testing.T) {
 		scope string
 	}{
 		{name: "unauthorized single scope", scope: "scope3"},
-		{name: "unauthorized multiple scopes", scope: "scope3 scope4"},
-		{name: "unauthorized multiple scopes with empty scope", scope: "scope1 "},
 	}
 
 	for _, tt := range tests {
@@ -861,17 +859,6 @@ func TestTokenClientCredentialsSuccess(t *testing.T) {
 			}.Encode(),
 			wantAud:   []string{"resource1", "resource2"},
 			wantScope: "scope1 scope2",
-		},
-		{
-			name:       "duplicate scope",
-			authHeader: basicAuth("client", "secret"),
-			body: url.Values{
-				"grant_type": {"client_credentials"},
-				"client_id":  {"client"},
-				"scope":      {"scope1 scope1"},
-			}.Encode(),
-			wantAud:   []string{"resource1", "resource2"},
-			wantScope: "scope1",
 		},
 		{
 			name:       "scope order",

@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/bgfernandes/small-idp-go/internal/client"
+	"github.com/bgfernandes/small-idp-go/internal/scope"
 )
 
 type authorizeError struct {
@@ -140,6 +141,34 @@ func parseAndValidateResponseType(query url.Values) error {
 	return nil
 }
 
+func parseAndValidateScope(query url.Values, c client.Client) ([]string, error) {
+	// According to RFC 6749 §3.3, scope is optional, and if the client omits the scope parameter
+	// the authorization server MUST either process the request using a pre-defined default value or
+	// fail the request indicating an invalid scope. If a default is used, it should be documented.
+	// OIDC Core §3.1.2.1 makes scope REQUIRED and it MUST contain openid.
+	// Here, we will default to the client's full list of allowed scopes, including openid, which is
+	// usual in practice.
+	queryScope, ok := query["scope"]
+	if !ok {
+		return c.Scopes, nil
+	}
+	if len(queryScope) != 1 {
+		return nil, &authorizeError{
+			code:        "invalid_request",
+			description: "duplicate scope parameter",
+		}
+	}
+
+	scopes, err := scope.Parse(queryScope[0], c.Scopes)
+	if err != nil {
+		return nil, &authorizeError{
+			code:        "invalid_scope",
+			description: err.Error(),
+		}
+	}
+	return scopes, nil
+}
+
 func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	query, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
@@ -194,6 +223,12 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	err = parseAndValidateResponseType(query)
+	if err != nil {
+		s.redirectWithError(w, r, redirectURI, state, err)
+		return
+	}
+
+	_, err = parseAndValidateScope(query, c)
 	if err != nil {
 		s.redirectWithError(w, r, redirectURI, state, err)
 		return
