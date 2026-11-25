@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/bgfernandes/small-idp-go/internal/client"
 	"github.com/bgfernandes/small-idp-go/internal/issuer"
 	"github.com/bgfernandes/small-idp-go/internal/user"
 )
@@ -18,6 +19,11 @@ import (
 var embedTemplates embed.FS
 var templates = template.Must(template.ParseFS(embedTemplates, "templates/*.html"))
 
+// ClientGetter is an interface for retrieving OAuth/OIDC clients.
+type ClientGetter interface {
+	Get(ctx context.Context, clientID string) (client.Client, error)
+}
+
 // UserAuthenticator is an interface for authenticating users.
 type UserAuthenticator interface {
 	Authenticate(ctx context.Context, email, password string) (user.User, error)
@@ -25,6 +31,7 @@ type UserAuthenticator interface {
 
 // Server is the web server for the small IDP.
 type Server struct {
+	clientGetter      ClientGetter
 	csrf              *http.CrossOriginProtection
 	issuer            issuer.Issuer
 	log               *slog.Logger
@@ -33,6 +40,7 @@ type Server struct {
 
 // Config is the configuration for a web server instance of the small IDP, every field is required.
 type Config struct {
+	ClientGetter      ClientGetter
 	Issuer            issuer.Issuer
 	Log               *slog.Logger
 	UserAuthenticator UserAuthenticator
@@ -42,6 +50,10 @@ type Config struct {
 func NewServer(
 	config Config,
 ) (*Server, error) {
+	if config.ClientGetter == nil {
+		return nil, errors.New("Config.ClientGetter is required")
+	}
+
 	if config.Issuer.IsZero() {
 		return nil, errors.New("Config.Issuer must be a non-zero value")
 	}
@@ -60,6 +72,7 @@ func NewServer(
 	csrf := http.NewCrossOriginProtection()
 
 	return &Server{
+		clientGetter:      config.ClientGetter,
 		csrf:              csrf,
 		issuer:            config.Issuer,
 		log:               config.Log,
@@ -79,6 +92,7 @@ func (s *Server) AddRoutes(mux *http.ServeMux) {
 	// The GET, HEAD, and OPTIONS methods are considered safe methods and are always allowed by the
 	// CSRF protection, but it's not harmful to just apply it to all routes in the web.Server by
 	// convention.
+	mux.Handle("GET /authorize", s.csrf.Handler(http.HandlerFunc(s.handleAuthorize)))
 	mux.Handle("GET /login", s.csrf.Handler(http.HandlerFunc(s.handleGetLogin)))
 	mux.Handle("POST /login", s.csrf.Handler(http.HandlerFunc(s.handlePostLogin)))
 }

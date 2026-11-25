@@ -53,10 +53,12 @@ func run() error {
 		return fmt.Errorf("run migrations: %w", err)
 	}
 
+	clientStore := postgres.NewClientStore(db)
+
 	apiServer, err := httpapi.NewServer(
 		httpapi.Config{
 			AccessTokenLifetime: cfg.AccessTokenLifetime,
-			ClientAuthenticator: postgres.NewClientStore(db),
+			ClientAuthenticator: clientStore,
 			Issuer:              cfg.Issuer,
 			Key:                 key,
 			Log:                 slog.With("component", "HttpApi"),
@@ -69,6 +71,7 @@ func run() error {
 
 	webServer, err := web.NewServer(
 		web.Config{
+			ClientGetter:      clientStore,
 			Issuer:            cfg.Issuer,
 			Log:               slog.With("component", "Web"),
 			UserAuthenticator: postgres.NewUserStore(db, postgres.DefaultPasswordHashCost),

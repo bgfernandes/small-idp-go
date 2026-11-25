@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/bgfernandes/small-idp-go/internal/client"
 	"github.com/bgfernandes/small-idp-go/internal/issuer"
 	"github.com/bgfernandes/small-idp-go/internal/user"
 )
@@ -20,9 +21,21 @@ func (f *fakeUserAuthenticator) Authenticate(
 	return f.authenticate(ctx, email, password)
 }
 
+type fakeClientGetter struct {
+	get func(ctx context.Context, clientID string) (client.Client, error)
+}
+
+func (f *fakeClientGetter) Get(
+	ctx context.Context,
+	clientID string,
+) (client.Client, error) {
+	return f.get(ctx, clientID)
+}
+
 func TestNewServerRequiredDependencies(t *testing.T) {
 	t.Parallel()
 
+	clientGetter := &fakeClientGetter{}
 	userAuthenticator := &fakeUserAuthenticator{}
 
 	validIssuer, err := issuer.Parse("http://localhost:8080")
@@ -34,13 +47,23 @@ func TestNewServerRequiredDependencies(t *testing.T) {
 
 	tests := []struct {
 		name              string
+		clientGetter      ClientGetter
 		issuer            issuer.Issuer
 		log               *slog.Logger
 		userAuthenticator UserAuthenticator
 		wantErr           bool
 	}{
 		{
+			name:              "nil clientGetter",
+			clientGetter:      nil,
+			issuer:            validIssuer,
+			log:               log,
+			userAuthenticator: userAuthenticator,
+			wantErr:           true,
+		},
+		{
 			name:              "zero issuer",
+			clientGetter:      clientGetter,
 			issuer:            issuer.Issuer{},
 			log:               log,
 			userAuthenticator: userAuthenticator,
@@ -48,6 +71,7 @@ func TestNewServerRequiredDependencies(t *testing.T) {
 		},
 		{
 			name:              "nil logger",
+			clientGetter:      clientGetter,
 			issuer:            validIssuer,
 			log:               nil,
 			userAuthenticator: userAuthenticator,
@@ -55,6 +79,7 @@ func TestNewServerRequiredDependencies(t *testing.T) {
 		},
 		{
 			name:              "nil userAuthenticator",
+			clientGetter:      clientGetter,
 			issuer:            validIssuer,
 			log:               log,
 			userAuthenticator: nil,
@@ -62,6 +87,7 @@ func TestNewServerRequiredDependencies(t *testing.T) {
 		},
 		{
 			name:              "valid config",
+			clientGetter:      clientGetter,
 			issuer:            validIssuer,
 			log:               log,
 			userAuthenticator: userAuthenticator,
@@ -73,6 +99,7 @@ func TestNewServerRequiredDependencies(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			_, err := NewServer(Config{
+				ClientGetter:      tt.clientGetter,
 				Issuer:            tt.issuer,
 				Log:               tt.log,
 				UserAuthenticator: tt.userAuthenticator,
@@ -85,12 +112,17 @@ func TestNewServerRequiredDependencies(t *testing.T) {
 }
 
 type testServerOptions struct {
+	clientGetter      ClientGetter
 	issuer            string
 	userAuthenticator UserAuthenticator
 }
 
 func newTestServer(t *testing.T, opts testServerOptions) *Server {
 	t.Helper()
+
+	if opts.clientGetter == nil {
+		opts.clientGetter = &fakeClientGetter{}
+	}
 
 	if opts.issuer == "" {
 		opts.issuer = "http://localhost:8080"
@@ -113,6 +145,7 @@ func newTestServer(t *testing.T, opts testServerOptions) *Server {
 
 	webServer, err := NewServer(
 		Config{
+			ClientGetter:      opts.clientGetter,
 			Issuer:            i,
 			Log:               log,
 			UserAuthenticator: opts.userAuthenticator,
