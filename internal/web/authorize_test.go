@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -754,6 +755,59 @@ func TestAuthorizeRedirectedErrors(t *testing.T) {
 				tt.wantError,
 				tt.wantState,
 			)
+		})
+	}
+}
+
+func TestParseAndValidateCodeChallenge(t *testing.T) {
+	tests := []struct {
+		name              string
+		query             url.Values
+		wantCodeChallenge string
+		wantError         *authorizeError
+	}{
+		{
+			name: "valid code challenge",
+			query: url.Values{
+				"code_challenge":        {"E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"},
+				"code_challenge_method": {"S256"},
+			},
+			wantCodeChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+		},
+		{
+			name: "code challenge with padding",
+			query: url.Values{
+				"code_challenge":        {"E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM="},
+				"code_challenge_method": {"S256"},
+			},
+			wantError: &authorizeError{
+				code:        "invalid_request",
+				description: "invalid code_challenge",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			codeChallenge, err := parseAndValidateCodeChallenge(tt.query)
+
+			if err == nil && tt.wantError != nil {
+				t.Fatalf("got no error, want %+v", tt.wantError)
+			}
+			if err != nil {
+				gotError, ok := errors.AsType[*authorizeError](err)
+				if !ok {
+					t.Fatalf("got error %v, want %+v", err, tt.wantError)
+				}
+				if !reflect.DeepEqual(gotError, tt.wantError) {
+					t.Fatalf("got error %+v, want %+v", gotError, tt.wantError)
+				}
+			}
+			if codeChallenge != tt.wantCodeChallenge {
+				t.Errorf("got code challenge %q, want %q", codeChallenge, tt.wantCodeChallenge)
+			}
 		})
 	}
 }
