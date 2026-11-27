@@ -312,4 +312,21 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		s.redirectWithError(w, r, redirectURI, state, err)
 		return
 	}
+
+	// TODO: Check here if the user is authenticated
+
+	// TODO: if the user is authenticated, redirect to a consent screen, and after consent, generate
+	// and save the code along with client_id, redirect_uri, code_challenge, nonce, sub, auth_time,
+	// granted scopes in a single-use, short TTL code store.
+
+	// TODO: if the user is not authenticated, redirect to login, and after login, redirect back to
+	// this endpoint with the same parameters, taking care to prevent open-redirection attacks
+
+	// TODO remove this error response, because it is just a placeholder until the above is
+	// implemented. RFC 6749 §4.1.2.1 defines error code temporarily_unavailable for a server that
+	// cannot currently handle the request
+	s.redirectWithError(w, r, redirectURI, state, &authorizeError{
+		code:        "temporarily_unavailable",
+		description: "server cannot currently handle the request",
+	})
 }
