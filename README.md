@@ -236,3 +236,11 @@ Errors follow RFC 6749 §5.2: a JSON body with `error` and `error_description`, 
 ```
 
 Error codes used: `invalid_request` (wrong content type, body too large, bad form encoding, a repeated parameter, two authentication methods, a `client_id` mismatch between header and body), `invalid_client`, `unsupported_grant_type`, `unauthorized_client` (the client is not allowed this grant), `invalid_scope`, `invalid_target`. Descriptions are fixed strings and never echo request values.
+
+## Authorization code grant (in progress)
+
+The authorization code flow with PKCE (RFC 6749 §4.1, RFC 7636) is being built in phase 2 and does not issue codes yet. Clients can already be registered for `authorization_code`, and the metadata document advertises `authorization_endpoint` and `response_types_supported: ["code"]`, but `POST /token` answers `unsupported_grant_type` for this grant until its branch lands.
+
+`GET /authorize` validates the request today. `client_id` and `redirect_uri` are required, the latter matching a registered URI exactly; errors in either are shown as a plain 400 and never redirected (RFC 6749 §4.1.2.1). Every other error is sent back to the client's redirection URI with `error`, `error_description` and the request's `state`. `response_type` must be `code`, `scope` must be a subset of the client's registered scopes and defaults to all of them when omitted.
+
+PKCE is mandatory: `code_challenge` and `code_challenge_method=S256` are required, and `plain` is rejected with `invalid_request` (RFC 7636 §4.4.1; §4.2 and the OAuth 2.0 Security BCP, RFC 9700, recommend against `plain`). A request that passes every check is currently answered with `error=temporarily_unavailable` (RFC 6749 §4.1.2.1), a placeholder until the login session check, the code store and the token branch exist.

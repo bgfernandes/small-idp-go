@@ -149,7 +149,7 @@ Ships browser login.
 - [x] User store in PostgreSQL: types in `internal/user`, `postgres.UserStore` beside the client store, a `goose` migration for `users`, users created with `cmd/users`. Details in 2.1.
 - [x] Minimal HTML login page via `html/template`.
 - [x] Client registry: public clients (no secret, `client_credentials` refused) and registered redirection URIs, required for `authorization_code`. The token endpoint answers `unsupported_grant_type` for that grant until its `authorization_code` branch lands. Details in 1.3.
-- [ ] `GET /authorize` (RFC 6749 §4.1): validate `client_id`, `redirect_uri` exact match, `response_type=code`, `scope`, `state`; require PKCE `code_challenge` with `S256` (RFC 7636). Reject `plain`. Parameter validation and error redirection are in place; PKCE, `nonce` and the session check are not. Details in 2.3.
+- [ ] `GET /authorize` (RFC 6749 §4.1): validate `client_id`, `redirect_uri` exact match, `response_type=code`, `scope`, `state`; require PKCE `code_challenge` with `S256` (RFC 7636). Reject `plain`. Parameter validation, error redirection and the PKCE checks are in place; `nonce`, the session check and the code itself are not, so a valid request is answered with `temporarily_unavailable`. Details in 2.3.
 - [ ] Login and consent pages; consent skippable per client for first-party apps.
 - [ ] Authorization code: single-use, short TTL, bound to `client_id`, `redirect_uri`, `code_challenge`, `nonce`.
 - [ ] `POST /token` with `grant_type=authorization_code` and `code_verifier` check.
@@ -219,7 +219,13 @@ Omitted or empty `scope` defaults to the client's registered scopes, which RFC 6
 
 That default is a choice, not vendor convention. OIDC Core §3.1.2.1 makes `scope` REQUIRED and says it MUST contain `openid`, leaving requests without it unspecified. Hydra applies no default: fosite splits the parameter and drops empty tokens, so an omitted `scope` requests nothing and yields no ID token. Keycloak defaults to the client's default scopes, the model followed here. Rejecting an omitted `scope` with `invalid_scope` stays open if the default proves confusing.
 
-Still to do: PKCE (`code_challenge` required, `code_challenge_method=S256` only, `plain` rejected with `invalid_request` per RFC 7636 §4.3 and the Security BCP), `nonce`, the session cookie check with a redirect to `/login` and back, then the authorization code itself.
+PKCE is required: `code_challenge` and `code_challenge_method=S256`, everything else `invalid_request`, the code RFC 7636 §4.4.1 gives for both a missing challenge and an unsupported transform. `plain` is refused because §4.2 says it SHOULD NOT be used when S256 is possible, RFC 9700 requires PKCE for public clients, and the OAuth 2.1 draft drops `plain`. An omitted method defaults to `plain` (§4.3) and gets the same answer.
+
+The challenge is decoded with `base64.RawURLEncoding` and must be 32 bytes: §4.2 and Appendix A define it as unpadded base64url of a SHA-256 digest, always 43 characters, and the first version used the padded `URLEncoding`, which rejected every valid challenge, caught by the Appendix B vector. The validated string is what gets stored, so `/token` can compare strings as §4.6 writes it.
+
+Decided 2026-11-27, to merge the branch before the flow is complete: a request that passes every check is answered with a redirect carrying `temporarily_unavailable` (RFC 6749 §4.1.2.1, a server that cannot currently handle the request) and the `state`, so a real client gets a well-formed error instead of an empty 200. It is a placeholder until the session check lands.
+
+Still to do: `nonce` (OIDC Core §3.1.2.1, optional in the code flow, carried on the code into the ID token), the session cookie check with a redirect to `/login` carrying only the original query string and back, so there is no redirect target to validate, then the authorization code store and the code itself.
 
 ### Phase 3 — Lifecycle
 
