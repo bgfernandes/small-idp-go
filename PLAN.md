@@ -149,7 +149,7 @@ Ships browser login.
 - [x] User store in PostgreSQL: types in `internal/user`, `postgres.UserStore` beside the client store, a `goose` migration for `users`, users created with `cmd/users`. Details in 2.1.
 - [x] Minimal HTML login page via `html/template`.
 - [x] Client registry: public clients (no secret, `client_credentials` refused) and registered redirection URIs, required for `authorization_code`. The token endpoint answers `unsupported_grant_type` for that grant until its `authorization_code` branch lands. Details in 1.3.
-- [ ] `GET /authorize` (RFC 6749 §4.1): validate `client_id`, `redirect_uri` exact match, `response_type=code`, `scope`, `state`; require PKCE `code_challenge` with `S256` (RFC 7636). Reject `plain`. Parameter validation, error redirection and the PKCE checks are in place; `nonce`, the session check and the code itself are not, so a valid request is answered with `temporarily_unavailable`. Details in 2.3.
+- [ ] `GET /authorize` (RFC 6749 §4.1): validate `client_id`, `redirect_uri` exact match, `response_type=code`, `scope`, `state`; require PKCE `code_challenge` with `S256` (RFC 7636). Reject `plain`. Parameter validation, error redirection, the PKCE checks and `nonce` are in place; the session check and the code itself are not, so a valid request is answered with `temporarily_unavailable`. Details in 2.3.
 - [ ] Login and consent pages; consent skippable per client for first-party apps.
 - [ ] Authorization code: single-use, short TTL, bound to `client_id`, `redirect_uri`, `code_challenge`, `nonce`.
 - [ ] `POST /token` with `grant_type=authorization_code` and `code_verifier` check.
@@ -225,7 +225,11 @@ The challenge is decoded with `base64.RawURLEncoding` and must be 32 bytes: §4.
 
 Decided 2026-11-27, to merge the branch before the flow is complete: a request that passes every check is answered with a redirect carrying `temporarily_unavailable` (RFC 6749 §4.1.2.1, a server that cannot currently handle the request) and the `state`, so a real client gets a well-formed error instead of an empty 200. It is a placeholder until the session check lands.
 
-Still to do: `nonce` (OIDC Core §3.1.2.1, optional in the code flow, carried on the code into the ID token), the session cookie check with a redirect to `/login` carrying only the original query string and back, so there is no redirect target to validate, then the authorization code store and the code itself.
+The handler's valid path has no test until then, deliberately: once a session exists that path fans out (no session, consent pending, consent given or refused) and each outcome gets its own row. The PKCE parser's success path is tested directly with the RFC 7636 Appendix B vector, with the padded form rejected.
+
+`nonce` is parsed like `state`: optional (OIDC Core §3.1.2.1), a repeat is `invalid_request`, and the value will travel on the code into the ID token.
+
+Still to do: the session cookie check with a redirect to `/login` carrying only the original query string and back, so there is no redirect target to validate, then the authorization code store and the code itself.
 
 ### Phase 3 — Lifecycle
 
