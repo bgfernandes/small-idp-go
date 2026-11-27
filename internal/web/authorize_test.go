@@ -717,6 +717,25 @@ func TestAuthorizeRedirectedErrors(t *testing.T) {
 			},
 			wantState: "some-state",
 		},
+		{
+			name: "duplicate nonce",
+			query: url.Values{
+				"client_id":             {"correct-client-id"},
+				"code_challenge":        {base64.RawURLEncoding.EncodeToString(make([]byte, 32))},
+				"code_challenge_method": {"S256"},
+				"response_type":         {"code"},
+				"redirect_uri":          {"https://example.com/a"},
+				"scope":                 {"openid profile email"},
+				"state":                 {"some-state"},
+				"nonce":                 {"nonce1", "nonce2"},
+			},
+			wantRedirectURL: "https://example.com/a",
+			wantError: authorizeError{
+				code:        "invalid_request",
+				description: "duplicate nonce parameter",
+			},
+			wantState: "some-state",
+		},
 	}
 
 	for _, tt := range tests {

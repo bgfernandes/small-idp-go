@@ -242,6 +242,23 @@ func parseAndValidateCodeChallenge(query url.Values) (string, error) {
 	return queryCodeChallenge[0], nil
 }
 
+func parseNonce(query url.Values) (string, error) {
+	// According to OIDC Core §3.1.2.1, nonce is an optional opaque string used to associate a
+	// Client session with an ID Token, and to mitigate replay attacks
+	queryNonce, ok := query["nonce"]
+	// RFC 6749 §3.1 says that request parameters should not be duplicated
+	if ok && len(queryNonce) != 1 {
+		return "", &authorizeError{
+			code:        "invalid_request",
+			description: "duplicate nonce parameter",
+		}
+	}
+	if ok {
+		return queryNonce[0], nil
+	}
+	return "", nil
+}
+
 func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	query, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
@@ -308,6 +325,12 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = parseAndValidateCodeChallenge(query)
+	if err != nil {
+		s.redirectWithError(w, r, redirectURI, state, err)
+		return
+	}
+
+	_, err = parseNonce(query)
 	if err != nil {
 		s.redirectWithError(w, r, redirectURI, state, err)
 		return
