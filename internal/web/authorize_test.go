@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -520,6 +521,199 @@ func TestAuthorizeRedirectedErrors(t *testing.T) {
 			wantError: authorizeError{
 				code:        "invalid_scope",
 				description: "unknown or malformed scope",
+			},
+			wantState: "some-state",
+		},
+		{
+			name: "missing code challenge",
+			query: url.Values{
+				"client_id":     {"correct-client-id"},
+				"response_type": {"code"},
+				"redirect_uri":  {"https://example.com/a"},
+				"scope":         {"openid profile email"},
+				"state":         {"some-state"},
+			},
+			wantRedirectURL: "https://example.com/a",
+			wantError: authorizeError{
+				code:        "invalid_request",
+				description: "code_challenge is required",
+			},
+			wantState: "some-state",
+		},
+		{
+			name: "empty code challenge",
+			query: url.Values{
+				"client_id":      {"correct-client-id"},
+				"code_challenge": {""},
+				"response_type":  {"code"},
+				"redirect_uri":   {"https://example.com/a"},
+				"scope":          {"openid profile email"},
+				"state":          {"some-state"},
+			},
+			wantRedirectURL: "https://example.com/a",
+			wantError: authorizeError{
+				code:        "invalid_request",
+				description: "code_challenge is required",
+			},
+			wantState: "some-state",
+		},
+		{
+			name: "duplicate code challenge",
+			query: url.Values{
+				"client_id":      {"correct-client-id"},
+				"code_challenge": {"code1", "code2"},
+				"response_type":  {"code"},
+				"redirect_uri":   {"https://example.com/a"},
+				"scope":          {"openid profile email"},
+				"state":          {"some-state"},
+			},
+			wantRedirectURL: "https://example.com/a",
+			wantError: authorizeError{
+				code:        "invalid_request",
+				description: "duplicate code_challenge parameter",
+			},
+			wantState: "some-state",
+		},
+		{
+			name: "missing code_challenge_method",
+			query: url.Values{
+				"client_id":      {"correct-client-id"},
+				"code_challenge": {"code1"},
+				"response_type":  {"code"},
+				"redirect_uri":   {"https://example.com/a"},
+				"scope":          {"openid profile email"},
+				"state":          {"some-state"},
+			},
+			wantRedirectURL: "https://example.com/a",
+			wantError: authorizeError{
+				code:        "invalid_request",
+				description: "code_challenge_method must be S256",
+			},
+			wantState: "some-state",
+		},
+		{
+			name: "empty code_challenge_method",
+			query: url.Values{
+				"client_id":             {"correct-client-id"},
+				"code_challenge":        {"code1"},
+				"code_challenge_method": {""},
+				"response_type":         {"code"},
+				"redirect_uri":          {"https://example.com/a"},
+				"scope":                 {"openid profile email"},
+				"state":                 {"some-state"},
+			},
+			wantRedirectURL: "https://example.com/a",
+			wantError: authorizeError{
+				code:        "invalid_request",
+				description: "code_challenge_method must be S256",
+			},
+			wantState: "some-state",
+		},
+		{
+			name: "duplicate code_challenge_method",
+			query: url.Values{
+				"client_id":             {"correct-client-id"},
+				"code_challenge":        {"code1"},
+				"code_challenge_method": {"method1", "method2"},
+				"response_type":         {"code"},
+				"redirect_uri":          {"https://example.com/a"},
+				"scope":                 {"openid profile email"},
+				"state":                 {"some-state"},
+			},
+			wantRedirectURL: "https://example.com/a",
+			wantError: authorizeError{
+				code:        "invalid_request",
+				description: "duplicate code_challenge_method parameter",
+			},
+			wantState: "some-state",
+		},
+		{
+			name: "plain code_challenge_method",
+			query: url.Values{
+				"client_id":             {"correct-client-id"},
+				"code_challenge":        {"code1"},
+				"code_challenge_method": {"plain"},
+				"response_type":         {"code"},
+				"redirect_uri":          {"https://example.com/a"},
+				"scope":                 {"openid profile email"},
+				"state":                 {"some-state"},
+			},
+			wantRedirectURL: "https://example.com/a",
+			wantError: authorizeError{
+				code:        "invalid_request",
+				description: "code_challenge_method must be S256",
+			},
+			wantState: "some-state",
+		},
+		{
+			name: "another code_challenge_method",
+			query: url.Values{
+				"client_id":             {"correct-client-id"},
+				"code_challenge":        {"code1"},
+				"code_challenge_method": {"another"},
+				"response_type":         {"code"},
+				"redirect_uri":          {"https://example.com/a"},
+				"scope":                 {"openid profile email"},
+				"state":                 {"some-state"},
+			},
+			wantRedirectURL: "https://example.com/a",
+			wantError: authorizeError{
+				code:        "invalid_request",
+				description: "code_challenge_method must be S256",
+			},
+			wantState: "some-state",
+		},
+		{
+			name: "non base64 code challenge",
+			query: url.Values{
+				"client_id":             {"correct-client-id"},
+				"code_challenge":        {"code!!!"},
+				"code_challenge_method": {"S256"},
+				"response_type":         {"code"},
+				"redirect_uri":          {"https://example.com/a"},
+				"scope":                 {"openid profile email"},
+				"state":                 {"some-state"},
+			},
+			wantRedirectURL: "https://example.com/a",
+			wantError: authorizeError{
+				code:        "invalid_request",
+				description: "invalid code_challenge",
+			},
+			wantState: "some-state",
+		},
+		{
+			name: "smaller than 32 bytes code challenge",
+			query: url.Values{
+				"client_id":             {"correct-client-id"},
+				"code_challenge":        {base64.RawURLEncoding.EncodeToString(make([]byte, 31))},
+				"code_challenge_method": {"S256"},
+				"response_type":         {"code"},
+				"redirect_uri":          {"https://example.com/a"},
+				"scope":                 {"openid profile email"},
+				"state":                 {"some-state"},
+			},
+			wantRedirectURL: "https://example.com/a",
+			wantError: authorizeError{
+				code:        "invalid_request",
+				description: "invalid code_challenge",
+			},
+			wantState: "some-state",
+		},
+		{
+			name: "larger than 32 bytes code challenge",
+			query: url.Values{
+				"client_id":             {"correct-client-id"},
+				"code_challenge":        {base64.RawURLEncoding.EncodeToString(make([]byte, 33))},
+				"code_challenge_method": {"S256"},
+				"response_type":         {"code"},
+				"redirect_uri":          {"https://example.com/a"},
+				"scope":                 {"openid profile email"},
+				"state":                 {"some-state"},
+			},
+			wantRedirectURL: "https://example.com/a",
+			wantError: authorizeError{
+				code:        "invalid_request",
+				description: "invalid code_challenge",
 			},
 			wantState: "some-state",
 		},

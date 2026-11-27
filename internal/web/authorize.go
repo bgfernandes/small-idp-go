@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/base64"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -169,6 +170,78 @@ func parseAndValidateScope(query url.Values, c client.Client) ([]string, error) 
 	return scopes, nil
 }
 
+func parseAndValidateCodeChallenge(query url.Values) (string, error) {
+	// RFC 7636 §4.4.1 says that if the server requires PKCE and the client does not send
+	// code_challenge, it should respond with invalid_request
+	queryCodeChallenge, ok := query["code_challenge"]
+	if !ok {
+		return "", &authorizeError{
+			code:        "invalid_request",
+			description: "code_challenge is required",
+		}
+	}
+	if len(queryCodeChallenge) != 1 {
+		return "", &authorizeError{
+			code:        "invalid_request",
+			description: "duplicate code_challenge parameter",
+		}
+	}
+	if queryCodeChallenge[0] == "" {
+		return "", &authorizeError{
+			code:        "invalid_request",
+			description: "code_challenge is required",
+		}
+	}
+
+	// RFC 7636 §4.2 says plain SHOULD NOT be used when the client can do S256, the OAuth 2.0
+	// Security BCP (RFC 9700) requires PKCE for public clients and recommends it for all, and the
+	// OAuth 2.1 draft drops plain entirely.
+	// RFC 7636 §4.4.1 says that if the server does not support the transform, it should also
+	// respond with invalid_request
+	queryCodeChallengeMethod, ok := query["code_challenge_method"]
+	if !ok {
+		return "", &authorizeError{
+			code:        "invalid_request",
+			description: "code_challenge_method must be S256",
+		}
+	}
+	if len(queryCodeChallengeMethod) != 1 {
+		return "", &authorizeError{
+			code:        "invalid_request",
+			description: "duplicate code_challenge_method parameter",
+		}
+	}
+	if queryCodeChallengeMethod[0] == "" {
+		return "", &authorizeError{
+			code:        "invalid_request",
+			description: "code_challenge_method must be S256",
+		}
+	}
+	if queryCodeChallengeMethod[0] != "S256" {
+		return "", &authorizeError{
+			code:        "invalid_request",
+			description: "code_challenge_method must be S256",
+		}
+	}
+
+	// Check that the code challenge is a valid base64url encoded string of a sha256 hash
+	decodedCodeChallenge, err := base64.RawURLEncoding.DecodeString(queryCodeChallenge[0])
+	if err != nil {
+		return "", &authorizeError{
+			code:        "invalid_request",
+			description: "invalid code_challenge",
+		}
+	}
+	if len(decodedCodeChallenge) != 32 {
+		return "", &authorizeError{
+			code:        "invalid_request",
+			description: "invalid code_challenge",
+		}
+	}
+
+	return queryCodeChallenge[0], nil
+}
+
 func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	query, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
@@ -234,5 +307,9 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Implement the rest of the function.
+	_, err = parseAndValidateCodeChallenge(query)
+	if err != nil {
+		s.redirectWithError(w, r, redirectURI, state, err)
+		return
+	}
 }
