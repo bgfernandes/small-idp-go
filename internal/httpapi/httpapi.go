@@ -25,11 +25,9 @@ type Server struct {
 	accessTokenLifetime time.Duration
 	clientAuthenticator ClientAuthenticator
 	issuer              issuer.Issuer
-	jwksURI             string
 	key                 *jwk.Key
 	log                 *slog.Logger
 	now                 func() time.Time
-	tokenEndpoint       string
 }
 
 // Config is the configuration for a server instance of the small IDP, every field is required.
@@ -70,10 +68,6 @@ func NewServer(
 		return nil, errors.New("Config.Now is required")
 	}
 
-	tokenEndpoint := config.Issuer.URL("token")
-
-	jwksURI := config.Issuer.URL("jwks")
-
 	return &Server{
 		accessTokenLifetime: config.AccessTokenLifetime,
 		clientAuthenticator: config.ClientAuthenticator,
@@ -81,8 +75,6 @@ func NewServer(
 		key:                 config.Key,
 		log:                 config.Log,
 		now:                 config.Now,
-		tokenEndpoint:       tokenEndpoint,
-		jwksURI:             jwksURI,
 	}, nil
 }
 

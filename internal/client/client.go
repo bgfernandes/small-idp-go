@@ -11,32 +11,40 @@ import (
 type GrantType string
 
 const (
+	// GrantTypeAuthorizationCode is the grant type for authorization code.
+	GrantTypeAuthorizationCode GrantType = "authorization_code"
 	// GrantTypeClientCredentials is the grant type for client credentials.
 	GrantTypeClientCredentials GrantType = "client_credentials"
 )
 
 // SupportedGrantTypes is a list of supported grant types.
 var SupportedGrantTypes = []GrantType{
+	GrantTypeAuthorizationCode,
 	GrantTypeClientCredentials,
 }
 
 // Client is a OIDC/OAuth2 client.
 type Client struct {
 	ID         string
-	Name       string
-	GrantTypes []GrantType
-	Scopes     []string
 	Audiences  []string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	GrantTypes []GrantType
+	Name       string
+	// Public is true if the client is public, and doesn't have a secret.
+	Public          bool
+	RedirectionURIs []string
+	Scopes          []string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // CreateParams is the parameters for creating a client.
 type CreateParams struct {
-	Audiences  []string
-	GrantTypes []GrantType
-	Name       string
-	Scopes     []string
+	Audiences       []string
+	GrantTypes      []GrantType
+	Name            string
+	Public          bool
+	RedirectionURIs []string
+	Scopes          []string
 }
 
 // ErrNotFound is returned when a client is not found.

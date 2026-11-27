@@ -13,6 +13,7 @@ import (
 
 	"github.com/bgfernandes/small-idp-go/internal/client"
 	"github.com/bgfernandes/small-idp-go/internal/jwt"
+	"github.com/bgfernandes/small-idp-go/internal/scope"
 )
 
 // oauthError is a custom error type for OAuth 2.0 errors.
@@ -245,33 +246,21 @@ func parseScope(r *http.Request, c client.Client) (string, error) {
 		}
 	}
 
-	// RFC 6749 §3.3 says that if missing, authorization server MUST either process the request
-	// using a pre-defined default value or fail the request indicating an invalid scope. Here we
-	// will default to all the scopes supported by the client, which
-	// is frequently used in practice.
-	if rawValue == "" {
-		return strings.Join(c.Scopes, " "), nil
-	}
-
-	scopes := strings.Split(rawValue, " ")
-	seenScopes := map[string]bool{}
-	dedupedScopes := make([]string, 0, len(scopes))
-	for _, scope := range scopes {
-		if !slices.Contains(c.Scopes, scope) {
-			return "", &oauthError{
-				status:      http.StatusBadRequest,
-				code:        "invalid_scope",
-				description: "unknown or malformed scope",
-			}
-		}
-
-		if !seenScopes[scope] {
-			seenScopes[scope] = true
-			dedupedScopes = append(dedupedScopes, scope)
+	// According to RFC 6749 §3.3, scope is optional, and if the client omits the scope parameter
+	// the authorization server MUST either process the request using a pre-defined default value or
+	// fail the request indicating an invalid scope. If a default is used, it should be documented.
+	// OIDC Core §3.1.2.1 makes scope REQUIRED and it MUST contain openid.
+	// Here, we will default to the client's full list of allowed scopes, including openid, which is
+	// usual in practice.
+	scopes, err := scope.Parse(rawValue, c.Scopes)
+	if err != nil {
+		return "", &oauthError{
+			status:      http.StatusBadRequest,
+			code:        "invalid_scope",
+			description: err.Error(),
 		}
 	}
-
-	return strings.Join(dedupedScopes, " "), nil
+	return strings.Join(scopes, " "), nil
 }
 
 // parseResource parses the resource from the request, checks if it is supported by the client, and
@@ -387,9 +376,19 @@ func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = parseGrantType(r, c)
+	grantType, err := parseGrantType(r, c)
 	if err != nil {
 		s.writeTokenError(w, err)
+		return
+	}
+	// currently only client_credentials grant type is supported, authorization_code clients can be
+	// registered but using this grant will return unsupported_grant_type error
+	if grantType != client.GrantTypeClientCredentials {
+		s.writeTokenError(w, &oauthError{
+			status:      http.StatusBadRequest,
+			code:        "unsupported_grant_type",
+			description: "only grant_type client_credentials is supported",
+		})
 		return
 	}
 
@@ -404,9 +403,6 @@ func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 		s.writeTokenError(w, err)
 		return
 	}
-
-	// TODO: currently this handler only supports client_credentials, in the future, branched off
-	// based on grant_type from here
 
 	currentTime := s.now()
 	// RFC 9068 §2.2 requires the following claims: iss, exp, aud, sub, client_id, iat, jti

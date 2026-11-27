@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
+	"strings"
 
 	"github.com/bgfernandes/small-idp-go/internal/client"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -27,12 +28,12 @@ func NewClientStore(db *sql.DB) *ClientStore {
 	return &ClientStore{db: db}
 }
 
-const clientColumns = "id, name, grant_types, scopes, audiences, created_at, updated_at, secret_hash"
+const clientColumns = "id, name, grant_types, scopes, audiences, created_at, updated_at, secret_hash, redirection_uris"
 
 // scanClient scans a client from a database row. It returns the client and the secret hash.
 func scanClient(row *sql.Row) (client.Client, string, error) {
 	c := client.Client{}
-	var secretHash string
+	var secretHash sql.Null[string]
 	err := row.Scan(
 		&c.ID,
 		&c.Name,
@@ -42,11 +43,13 @@ func scanClient(row *sql.Row) (client.Client, string, error) {
 		&c.CreatedAt,
 		&c.UpdatedAt,
 		&secretHash,
+		&c.RedirectionURIs,
 	)
 	if err != nil {
 		return client.Client{}, "", fmt.Errorf("scan client: %w", err)
 	}
-	return c, secretHash, nil
+	c.Public = !secretHash.Valid
+	return c, secretHash.V, nil
 }
 
 // Get gets a client by its ID.
@@ -112,6 +115,13 @@ func (s *ClientStore) Create(
 		return client.Client{}, "", &client.InvalidClientError{
 			Field:  "GrantTypes",
 			Reason: "grant types cannot have duplicates",
+		}
+	}
+	// RFC 6749 §4.4 says client credentials grant type MUST only be used by confidential clients
+	if slices.Contains(params.GrantTypes, client.GrantTypeClientCredentials) && params.Public {
+		return client.Client{}, "", &client.InvalidClientError{
+			Field:  "GrantTypes",
+			Reason: "client_credentials grant type is not allowed for public clients",
 		}
 	}
 
@@ -199,14 +209,82 @@ func (s *ClientStore) Create(
 		}
 	}
 
-	clientID := rand.Text()
-	secret := rand.Text()
+	if params.RedirectionURIs == nil {
+		params.RedirectionURIs = []string{}
+	}
 
-	secretHash := hashSecret(secret)
+	// RFC 6749 §3.1.2.2 requires redirection URI registration only for public clients or
+	// confidential clients using the implicit grant type, but recommends it for all clients prior
+	// to utilizing the authorization endpoint, so we will require it for all clients that will use
+	// the authorization endpoint.
+	if slices.Contains(params.GrantTypes, client.GrantTypeAuthorizationCode) &&
+		len(params.RedirectionURIs) == 0 {
+		return client.Client{}, "", &client.InvalidClientError{
+			Field:  "RedirectionURIs",
+			Reason: "redirection URIs are required for authorization code clients",
+		}
+	}
+	for _, redirectionURI := range params.RedirectionURIs {
+		if redirectionURI == "" {
+			return client.Client{}, "", &client.InvalidClientError{
+				Field:  "RedirectionURIs",
+				Reason: "redirection URI cannot be empty",
+			}
+		}
+		u, err := url.Parse(redirectionURI)
+		if err != nil {
+			return client.Client{}, "", &client.InvalidClientError{
+				Field:  "RedirectionURIs",
+				Reason: fmt.Sprintf("invalid redirection URI: %s", redirectionURI),
+			}
+		}
+		// TODO: support custom schemes for native apps RFC 8252 §7.1
+		if u.Scheme != "https" && u.Scheme != "http" {
+			return client.Client{}, "", &client.InvalidClientError{
+				Field: "RedirectionURIs",
+				Reason: fmt.Sprintf(
+					"redirection URI must be an https or http URI: %s",
+					redirectionURI,
+				),
+			}
+		}
+		if u.Hostname() == "" {
+			return client.Client{}, "", &client.InvalidClientError{
+				Field:  "RedirectionURIs",
+				Reason: fmt.Sprintf("redirection URI must have a host: %s", redirectionURI),
+			}
+		}
+		if strings.Contains(redirectionURI, "#") {
+			return client.Client{}, "", &client.InvalidClientError{
+				Field:  "RedirectionURIs",
+				Reason: fmt.Sprintf("redirection URI cannot have a fragment: %s", redirectionURI),
+			}
+		}
+		// TODO: RFC 6749 §3.1.2.1 recommends TLS for redirection URIs, but RFC 8252 §7 allows it
+		// for some native apps. For now, we will not require TLS for redirection URIs, but in the
+		// future, we will add a config option to require TLS for non-native apps, that can be
+		// turned on for production deployments.
+	}
+	if hasDuplicates(params.RedirectionURIs) {
+		return client.Client{}, "", &client.InvalidClientError{
+			Field:  "RedirectionURIs",
+			Reason: "redirection URIs cannot have duplicates",
+		}
+	}
+
+	clientID := rand.Text()
+	var secret string
+
+	var secretHash sql.Null[string]
+	if !params.Public {
+		secret = rand.Text()
+		secretHash.Valid = true
+		secretHash.V = hashSecret(secret)
+	}
 
 	query := `
-		INSERT INTO clients (id, name, grant_types, scopes, audiences, secret_hash)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO clients (id, name, grant_types, scopes, audiences, secret_hash, redirection_uris)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING ` + clientColumns
 
 	c, _, err := scanClient(s.db.QueryRowContext(ctx, query,
@@ -216,6 +294,7 @@ func (s *ClientStore) Create(
 		params.Scopes,
 		params.Audiences,
 		secretHash,
+		params.RedirectionURIs,
 	))
 	if err != nil {
 		if pgError, ok := errors.AsType[*pgconn.PgError](err); ok {
@@ -259,6 +338,13 @@ func (s *ClientStore) Authenticate(
 			return client.Client{}, client.ErrUnknownClientOrWrongSecret
 		}
 		return client.Client{}, fmt.Errorf("authenticate client: %w", err)
+	}
+
+	if c.Public {
+		// If the client is public, apply similar timing mitigation as above.
+		subtle.ConstantTimeCompare([]byte(calculatedSecretHash), fixedSecretHash)
+
+		return client.Client{}, client.ErrUnknownClientOrWrongSecret
 	}
 
 	if subtle.ConstantTimeCompare([]byte(calculatedSecretHash), []byte(secretHash)) == 1 {

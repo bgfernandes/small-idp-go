@@ -30,16 +30,13 @@ func (s *Server) handleOAuthAuthorizationServer(w http.ResponseWriter, _ *http.R
 		grantTypesSupported[i] = string(grantType)
 	}
 
-	// Only fields that are needed for client_credentials grant type according to RFC 8414.
-	// response_types_supported is REQUIRED according to RFC 8414 §2, but the server currently
-	// supports no response types, and §3.2 says "Claims with zero elements MUST be omitted". The
-	// two rules contradict each other
-	// for a server with no authorization endpoint, so we omit it for now.
 	s.writeJSON(w, http.StatusOK, authorizationServerMetadata{
-		Issuer:              s.issuer.String(),
-		TokenEndpoint:       s.tokenEndpoint,
-		JWKSURI:             s.jwksURI,
-		GrantTypesSupported: grantTypesSupported,
+		AuthorizationEndpoint:  s.issuer.URL("authorize"),
+		GrantTypesSupported:    grantTypesSupported,
+		Issuer:                 s.issuer.String(),
+		JWKSURI:                s.issuer.URL("jwks"),
+		ResponseTypesSupported: []string{"code"},
+		TokenEndpoint:          s.issuer.URL("token"),
 		TokenEndpointAuthMethodsSupported: []string{
 			tokenEndpointAuthMethodBasic,
 			tokenEndpointAuthMethodPost,

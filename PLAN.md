@@ -34,9 +34,9 @@ Ships a server that can mint verifiable access tokens for machine clients.
 
 #### 1.1 OAuth authorization server metadata
 
-Fields: `issuer` (the configured string verbatim; RFC 8414 §3.3 makes clients discard the document if it differs), `token_endpoint`, `jwks_uri`, `grant_types_supported: ["client_credentials"]`, and `token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post"]`. The last two must be explicit because their defaults when omitted (`["authorization_code", "implicit"]` and `client_secret_basic` alone) would be false.
+Fields: `issuer` (the configured string verbatim; RFC 8414 §3.3 makes clients discard the document if it differs), `token_endpoint`, `jwks_uri`, `grant_types_supported` (derived from `client.SupportedGrantTypes`), and `token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post"]`. The last two must be explicit because their defaults when omitted (`["authorization_code", "implicit"]` and `client_secret_basic` alone) would be false.
 
-`authorization_endpoint` is omitted, which §2 allows when no supported grant uses it. `response_types_supported` is REQUIRED by §2, but the server supports no response types and §3.2 says claims with zero elements MUST be omitted; the spec contradicts itself here, so the field is omitted in this phase with a comment saying why.
+In phase 1 `authorization_endpoint` was omitted, which §2 allows when no supported grant uses it, and so was `response_types_supported`: it is REQUIRED by §2, but the server supported no response types and §3.2 says claims with zero elements MUST be omitted, so the spec contradicted itself. Phase 2 added `authorization_endpoint` (from `Issuer.URL`, so it follows a path issuer) and `response_types_supported: ["code"]` together with `GET /authorize`, which resolves the contradiction.
 
 Neither spec fixes the JWKS path; only the metadata documents are well-known, and the JWKS lives wherever `jwks_uri` says.
 
@@ -60,17 +60,21 @@ Schema as `goose` SQL migrations embedded with `embed` and applied at startup th
 
 Each consumer defines the interface it needs (`cmd/clients` a one-method `Store`, `httpapi` a one-method `ClientAuthenticator`), and the wiring call in `cmd/server` is the compile-time check that `postgres.ClientStore` satisfies them.
 
-Record: `client_id`; SHA-256 hash of a `crypto/rand` secret, compared with `crypto/subtle.ConstantTimeCompare` (a fast hash is enough for high-entropy secrets; bcrypt is for the phase 2 user passwords, which are low entropy); allowed grant types; allowed scopes (RFC 6749 §3.3); allowed audiences, because RFC 9068 §3 makes `aud` name the resource server, not the client: taken from the RFC 8707 `resource` parameter when sent, otherwise the client's registered audiences.
+Record: `client_id`; SHA-256 hash of a `crypto/rand` secret, compared with `crypto/subtle.ConstantTimeCompare` (a fast hash is enough for high-entropy secrets; bcrypt is for the phase 2 user passwords, which are low entropy); allowed grant types; allowed scopes (RFC 6749 §3.3); allowed audiences, because RFC 9068 §3 makes `aud` name the resource server, not the client: taken from the RFC 8707 `resource` parameter when sent, otherwise the client's registered audiences; registered redirection URIs (phase 2).
+
+Public clients (RFC 6749 §2.1) were added in phase 2 for the authorization code grant: the secret hash column is nullable, a public client is one whose hash is NULL, and `Client.Public` is derived from that in `scanClient` rather than stored twice. The hash goes through `sql.Null[string]`: an invalid value encodes as NULL and a NULL scans without the error a plain `string` would raise. `Authenticate` rejects a public client with the same error as a wrong secret, since it has no secret to present.
 
 `client_id` is `text` (RFC 6749 §2.2 defines it as a unique string with no format; a `uuid` column would turn an unknown ID into a query error instead of `sql.ErrNoRows`). The store generates the ID and the secret with `crypto/rand.Text` (26 base32 characters, 130 bits) and stores the hex SHA-256 of the secret, unsalted: a salt defends low-entropy input against precomputed tables, which does not apply here.
 
 Validation runs on the write path in the store's `Create`, not at startup, so rows can be added while the server runs: name required; at least one supported grant type, no duplicates; scope tokens per RFC 6749 §3.3 (printable ASCII except space, double quote and backslash), no duplicates, an empty list allowed because scope is optional; at least one audience, each an absolute URI without fragment or query (RFC 8707 §2), no duplicates.
 
+Phase 2 added to that list: `client_credentials` refused for a public client (RFC 6749 §4.4); at least one redirection URI when `authorization_code` is allowed (§3.1.2.2 requires registration for public clients and recommends it for all), each `http` or `https` with a non-empty `Hostname()` and no fragment (§3.1.2), a query allowed since §3.1.2 permits one and matching is exact, no duplicates. A nil slice is normalised to empty before the insert: pgx encodes nil as NULL, which the `NOT NULL` column rejects.
+
 Names are unique case-insensitively through a unique index on `lower(name)` (a `UNIQUE` constraint cannot take an expression); the SQLSTATE 23505 violation on that index is translated into `InvalidClientError` with no pre-insert check, so the index is the only source of truth and concurrent creates cannot both succeed.
 
 `Authenticate` hashes the presented secret, compares with `subtle.ConstantTimeCompare`, and returns one error for an unknown ID and a wrong secret alike (RFC 6749 §5.2 `invalid_client` without an enumeration oracle); the not-found path runs a dummy compare, which equalises the hash comparison but not the index miss, a mitigation that matters more with bcrypt.
 
-Clients are created with `cmd/clients create`, a `flag`-based tool with repeated `-grant-type`, `-audience` and `-scope` flags that calls `ClientStore.Create` and prints the secret once. Usage errors exit 2, rejected clients and database failures exit 1, classified in `main` with `errors.Is` on a local sentinel and `errors.AsType` on `InvalidClientError`.
+Clients are created with `cmd/clients create`, a `flag`-based tool with repeated `-grant-type`, `-audience`, `-scope` and `-redirection-uri` flags and a `-public` boolean that calls `ClientStore.Create` and prints the secret once, for confidential clients only. Usage errors exit 2, rejected clients and database failures exit 1, classified in `main` with `errors.Is` on a local sentinel and `errors.AsType` on `InvalidClientError`.
 
 The tool is deliberately untested: a local development utility, documented in the README, to be rewritten in phase 3 as a client of the admin API, so it no longer needs database access. Configuration loading moved to `internal/config` so both binaries share it.
 
@@ -86,7 +90,7 @@ Client authentication is `client_secret_basic` (RFC 7617, both values form-decod
 
 `grant_type` must be present (`invalid_request`), offered by the server (`unsupported_grant_type`) and allowed for the client (`unauthorized_client`).
 
-`scope` is a strict single-space list (§3.3 ABNF, `strings.Split` not `strings.Fields`) that must be a subset of the client's registered scopes, so a malformed token fails the same membership check and needs no re-validation. It is de-duplicated preserving request order and defaults to the client's scopes when omitted.
+`scope` is a strict single-space list (§3.3 ABNF, `strings.Split` not `strings.Fields`) that must be a subset of the client's registered scopes, so a malformed token fails the same membership check and needs no re-validation. It is de-duplicated preserving request order and defaults to the client's scopes when omitted. Since phase 2 the parsing lives in `internal/scope`, shared with `/authorize` so the two endpoints cannot drift (2.3).
 
 `resource` (RFC 8707) may repeat. Each value must be among the client's audiences, otherwise `invalid_target` (defined in RFC 8707 §2); empty values are dropped (§3.2). The client's audiences are the default resource indicator, which RFC 9068 §3 makes a MUST; RFC 8707 mentions a default only in §2.1, for the authorization request, and says nothing in §2.2.
 
@@ -114,9 +118,9 @@ The cache headers are set on error responses too; §5.2 only shows them in its e
 
 One function per behaviour, `httptest` end to end through `Routes()`, a `fakeClientAuthenticator` with a function field, and `newTestServer(t, testServerOptions{...})` filling defaults.
 
-Error cases: wrong method (with `Allow`), each content type, oversized body, bad form encoding, repeated parameter, two auth methods, missing `client_id` or secret, malformed and non-Basic headers, `client_id` mismatch, wrong credentials through both methods, authenticator failure, each grant type error, unknown scope, unknown resource.
+Error cases: wrong method (with `Allow`), each content type, oversized body, bad form encoding, repeated parameter, two auth methods, missing `client_id` or secret, malformed and non-Basic headers, `client_id` mismatch, wrong credentials through both methods, authenticator failure, each grant type error, one unknown scope (the parser's own cases live in `internal/scope`), unknown resource.
 
-Success table: body and header credentials, `client_id` in both places, default scope and resources, duplicate and reordered scope, duplicate resource, empty `resource` values. Separate tests: `scope` absent from body and claims for a client with no scopes; §2.3.1 decoding checked with a recording fake; an exact-keys test that decodes response, header and claims into `map[string]json.RawMessage`, because decoding into the producer's own structs lets a JSON tag typo round-trip unnoticed.
+Success table: body and header credentials, `client_id` in both places, default scope and resources, reordered scope, duplicate resource, empty `resource` values. Separate tests: `scope` absent from body and claims for a client with no scopes; §2.3.1 decoding checked with a recording fake; an exact-keys test that decodes response, header and claims into `map[string]json.RawMessage`, because decoding into the producer's own structs lets a JSON tag typo round-trip unnoticed.
 
 The token is verified against `GET /jwks` from the same server, not against the private key the test holds: the P-256 point is rebuilt with `ecdsa.ParseUncompressedPublicKey`, the 64-byte signature split into `R || S` (RFC 7518 §3.4) and checked with `ecdsa.Verify` over SHA-256 of the two encoded parts. `Config.Now` is a fixed clock so `exp` and `iat` are exact.
 
@@ -144,7 +148,8 @@ Ships browser login.
 
 - [x] User store in PostgreSQL: types in `internal/user`, `postgres.UserStore` beside the client store, a `goose` migration for `users`, users created with `cmd/users`. Details in 2.1.
 - [x] Minimal HTML login page via `html/template`.
-- [ ] `GET /authorize` (RFC 6749 §4.1): validate `client_id`, `redirect_uri` exact match, `response_type=code`, `scope`, `state`; require PKCE `code_challenge` with `S256` (RFC 7636). Reject `plain`.
+- [x] Client registry: public clients (no secret, `client_credentials` refused) and registered redirection URIs, required for `authorization_code`. The token endpoint answers `unsupported_grant_type` for that grant until its `authorization_code` branch lands. Details in 1.3.
+- [ ] `GET /authorize` (RFC 6749 §4.1): validate `client_id`, `redirect_uri` exact match, `response_type=code`, `scope`, `state`; require PKCE `code_challenge` with `S256` (RFC 7636). Reject `plain`. Parameter validation, error redirection, the PKCE checks and `nonce` are in place; the session check and the code itself are not, so a valid request is answered with `temporarily_unavailable`. Details in 2.3.
 - [ ] Login and consent pages; consent skippable per client for first-party apps.
 - [ ] Authorization code: single-use, short TTL, bound to `client_id`, `redirect_uri`, `code_challenge`, `nonce`.
 - [ ] `POST /token` with `grant_type=authorization_code` and `code_verifier` check.
@@ -193,6 +198,38 @@ CORS applies only to `fetch` and `XMLHttpRequest`, and even there it blocks read
 Login CSRF logs the victim in as the attacker, harmless today and serious once the session cookie exists, so the defence goes in first: `http.CrossOriginProtection` (Go 1.25) wrapping the mux rejects unsafe cross-origin requests by `Sec-Fetch-Site`, falling back to `Origin` against `Host`; non-browser clients send neither header and pass, so the token endpoint is unaffected. `SameSite=Lax` on the session cookie adds a second layer later.
 
 Hygiene: the password is never logged or re-rendered; the email is re-rendered escaped by the template; templates execute into a buffer before the response is written, so a template failure is a clean 500; `Cache-Control: no-store` and `X-Frame-Options: DENY` on both methods; the form action derives from the configured issuer (1.2), tested through `http.StripPrefix`.
+
+#### 2.3 Authorization endpoint
+
+Decided 2026-11-25: `GET /authorize` lives in `internal/web`, not `internal/httpapi`, because it is a browser endpoint that will render login and consent pages and read the session cookie. It needs only `Get` on the client store, so it defines its own `ClientGetter`; the token endpoint keeps `ClientAuthenticator`. Splitting by consumer is the `io.Reader` / `io.Writer` idiom: the store satisfies both, and each package names only what it calls.
+
+Parameters come from `url.ParseQuery(r.URL.RawQuery)` rather than `r.URL.Query()`, which swallows parse errors; a malformed query is a 400. Every parameter is read as a slice and a repeat is rejected (RFC 6749 §3.1), an empty value is treated as omitted.
+
+Error handling follows RFC 6749 §4.1.2.1 in two stages. A missing, unknown or repeated `client_id`, or a `redirect_uri` that is missing, repeated or not an exact match of a registered URI, is shown to the resource owner as a plain 400 and never redirected. A failing client lookup is a logged 500. Everything after that redirects to the validated `redirect_uri` with `error`, `error_description` and the request's `state` when present.
+
+`redirect_uri` is always required, the OIDC Core §3.1.2.1 reading rather than the RFC 6749 §3.1.2.3 one that allows omitting it for a single registered URI; it must match a registered URI byte for byte. The first version resolved a single registered URI by default and dereferenced an empty list without a check, an open redirect and a panic found by probing before the tests existed.
+
+Error parameters are appended to the registered URI's `RawQuery` with `&`, not through `u.Query()` and `Encode()`: form decoding is many-to-one (`%20` and `+`, `%41` and `A`, `flag` and `flag=`), `Encode` sorts keys, and `Query()` silently drops pairs `ParseQuery` rejects, so a round trip can change the registered bytes that §3.1.2.2 says MUST be retained. The test asserts both the prefix, which pins those bytes, and the parsed URL without its query.
+
+Order of checks after the redirect target is known: `state` (a repeat is `invalid_request`, reported without `state`), the client's grant types (`unauthorized_client`), `response_type` (missing or empty is `invalid_request`, anything but `code` is `unsupported_response_type`), then `scope`.
+
+`scope` goes through `internal/scope`, extracted from the token endpoint so both use one parser: single-space list, subset of the client's registered scopes, de-duplicated preserving order; unknown or malformed values are `invalid_scope`, a repeated parameter `invalid_request`. The parser's table test owns the accepted-string cases (spaces, tabs, duplicates, order, the empty default); each endpoint tests only its mapping, so a parser change fails tests in one place.
+
+Omitted or empty `scope` defaults to the client's registered scopes, which RFC 6749 §3.3 permits for a documented default. If the client registered `openid`, a scope-less request becomes an OIDC request.
+
+That default is a choice, not vendor convention. OIDC Core §3.1.2.1 makes `scope` REQUIRED and says it MUST contain `openid`, leaving requests without it unspecified. Hydra applies no default: fosite splits the parameter and drops empty tokens, so an omitted `scope` requests nothing and yields no ID token. Keycloak defaults to the client's default scopes, the model followed here. Rejecting an omitted `scope` with `invalid_scope` stays open if the default proves confusing.
+
+PKCE is required: `code_challenge` and `code_challenge_method=S256`, everything else `invalid_request`, the code RFC 7636 §4.4.1 gives for both a missing challenge and an unsupported transform. `plain` is refused because §4.2 says it SHOULD NOT be used when S256 is possible, RFC 9700 requires PKCE for public clients, and the OAuth 2.1 draft drops `plain`. An omitted method defaults to `plain` (§4.3) and gets the same answer.
+
+The challenge is decoded with `base64.RawURLEncoding` and must be 32 bytes: §4.2 and Appendix A define it as unpadded base64url of a SHA-256 digest, always 43 characters, and the first version used the padded `URLEncoding`, which rejected every valid challenge, caught by the Appendix B vector. The validated string is what gets stored, so `/token` can compare strings as §4.6 writes it.
+
+Decided 2026-11-27, to merge the branch before the flow is complete: a request that passes every check is answered with a redirect carrying `temporarily_unavailable` (RFC 6749 §4.1.2.1, a server that cannot currently handle the request) and the `state`, so a real client gets a well-formed error instead of an empty 200. It is a placeholder until the session check lands.
+
+The handler's valid path has no test until then, deliberately: once a session exists that path fans out (no session, consent pending, consent given or refused) and each outcome gets its own row. The PKCE parser's success path is tested directly with the RFC 7636 Appendix B vector, with the padded form rejected.
+
+`nonce` is parsed like `state`: optional (OIDC Core §3.1.2.1), a repeat is `invalid_request`, and the value will travel on the code into the ID token.
+
+Still to do: the session cookie check with a redirect to `/login` carrying only the original query string and back, so there is no redirect target to validate, then the authorization code store and the code itself.
 
 ### Phase 3 — Lifecycle
 
