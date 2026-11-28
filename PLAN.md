@@ -149,7 +149,7 @@ Ships browser login.
 - [x] User store in PostgreSQL: types in `internal/user`, `postgres.UserStore` beside the client store, a `goose` migration for `users`, users created with `cmd/users`. Details in 2.1.
 - [x] Minimal HTML login page via `html/template`.
 - [x] Client registry: public clients (no secret, `client_credentials` refused) and registered redirection URIs, required for `authorization_code`. The token endpoint answers `unsupported_grant_type` for that grant until its `authorization_code` branch lands. Details in 1.3.
-- [ ] `GET /authorize` (RFC 6749 §4.1): validate `client_id`, `redirect_uri` exact match, `response_type=code`, `scope`, `state`; require PKCE `code_challenge` with `S256` (RFC 7636). Reject `plain`. Parameter validation, error redirection, the PKCE checks and `nonce` are in place; the session check and the code itself are not, so a valid request is answered with `temporarily_unavailable`. Details in 2.3.
+- [ ] `GET /authorize` (RFC 6749 §4.1): validate `client_id`, `redirect_uri` exact match, `response_type=code`, `scope`, `state`; require PKCE `code_challenge` with `S256` (RFC 7636). Reject `plain`. Parameter validation, error redirection, the PKCE checks and the OIDC parameters `nonce`, `prompt` and `max_age` are in place; the session check and the code itself are not, so a valid request is answered with `temporarily_unavailable`. Details in 2.3.
 - [ ] Login and consent pages; consent skippable per client for first-party apps.
 - [ ] Authorization code: single-use, short TTL, bound to `client_id`, `redirect_uri`, `code_challenge`, `nonce`.
 - [ ] `POST /token` with `grant_type=authorization_code` and `code_verifier` check.
@@ -160,7 +160,7 @@ Ships browser login.
 - [ ] `GET /.well-known/openid-configuration` (OIDC Discovery §3, §4), added now that its required fields are true. Same handler and same body as `/.well-known/oauth-authorization-server`: RFC 9068 §4 says the values MUST be consistent across the two publication methods.
   - New fields in both documents: `authorization_endpoint`, `userinfo_endpoint`, `response_types_supported: ["code"]`, `subject_types_supported: ["public"]` (public only for now; pairwise is an optional add-on, see phase 3), `id_token_signing_alg_values_supported`, `scopes_supported` including `openid`, `code_challenge_methods_supported: ["S256"]` (RFC 8414 §2: if omitted, the server does not support PKCE), and `authorization_code` added to `grant_types_supported`.
   - Known gap until phase 3: Discovery §3 says `id_token_signing_alg_values_supported` MUST include RS256, and this phase can only list ES256.
-- [ ] Server-side IdP session cookie, `HttpOnly`, `Secure`, `SameSite=Lax`; `prompt=none` and `prompt=login`; `max_age` re-authentication.
+- [ ] Server-side IdP session cookie, `HttpOnly`, `Secure`, `SameSite=Lax`; honour `prompt=none` and `prompt=login`; `max_age` re-authentication. The parameters are already parsed and `select_account` already refused, see 2.3.
 - [ ] Tests: full code flow driven with `httptest` and a cookie jar, PKCE failure cases, `nonce` round-trip, single-use code, `redirect_uri` mismatch.
 
 Go topics: `html/template`, cookies and sessions, `context`, `time` handling, `errors.Is` / `errors.As`, `golang.org/x/crypto/bcrypt` and why a password hash is not a secret hash, reading a secret from stdin in a CLI.
@@ -227,7 +227,13 @@ Decided 2026-11-27, to merge the branch before the flow is complete: a request t
 
 The handler's valid path has no test until then, deliberately: once a session exists that path fans out (no session, consent pending, consent given or refused) and each outcome gets its own row. The PKCE parser's success path is tested directly with the RFC 7636 Appendix B vector, with the padded form rejected.
 
-`nonce` is parsed like `state`: optional (OIDC Core §3.1.2.1), a repeat is `invalid_request`, and the value will travel on the code into the ID token.
+`nonce`, `prompt` and `max_age` are OIDC Core §3.1.2.1 parameters and are read only when the resulting scope contains `openid`. In a plain OAuth request they are unrecognized parameters, which RFC 6749 §3.1 says the server MUST ignore, repeats included. Because an omitted `scope` defaults to the client's registered list, a client registered with `openid` makes an OIDC request even without sending `scope`.
+
+`nonce` is parsed like `state`: optional, a repeat is `invalid_request`, and the value will travel on the code into the ID token. `prompt` is a space-separated list: a repeated parameter, or `none` combined with another value, is `invalid_request` (§3.1.2.1 requires an error there but names no code); repeated values are de-duplicated like `scope`; unknown values are ignored, as the same section recommends so new values can be phased in.
+
+`select_account` is a defined value, so the ignore clause does not cover it. §3.1.2.1 says an OP that cannot obtain an account selection MUST return an error, typically `account_selection_required` (§3.1.2.6), and that is the answer: the server keeps one session per browser and has no account choice to offer. Treating it as `login` was the alternative, rejected because the client asked for a choice, not a re-authentication.
+
+`max_age` is a non-negative integer in seconds, anything else `invalid_request`. Presence and value are returned separately because `max_age=0` is valid and, per §3.1.2.1, equivalent to `prompt=login`, and any `max_age` makes `auth_time` REQUIRED in the ID token, which is why the code will carry `auth_time`. The value is returned as a `time.Duration`, which is an `int64` of nanoseconds, so a value above about 292 years is refused as `invalid_request` rather than overflowing silently. Honouring `prompt` and `max_age` waits for the session.
 
 Still to do: the session cookie check with a redirect to `/login` carrying only the original query string and back, so there is no redirect target to validate, then the authorization code store and the code itself.
 

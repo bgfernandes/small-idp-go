@@ -4,9 +4,13 @@ import (
 	"encoding/base64"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/bgfernandes/small-idp-go/internal/client"
 	"github.com/bgfernandes/small-idp-go/internal/scope"
@@ -259,6 +263,102 @@ func parseNonce(query url.Values) (string, error) {
 	return "", nil
 }
 
+var allowedPrompts = []string{"none", "login", "consent", "select_account"}
+
+func parsePrompt(query url.Values) ([]string, error) {
+	// According to OIDC Core §3.1.2.1, prompt is an optional space-separated list of values that
+	// specifies whether the Authorization Server prompts the End-User for reauthentication and
+	// consent.
+	queryPrompt, ok := query["prompt"]
+	if !ok {
+		return nil, nil
+	}
+	if len(queryPrompt) != 1 {
+		return nil, &authorizeError{
+			code:        "invalid_request",
+			description: "duplicate prompt parameter",
+		}
+	}
+	if queryPrompt[0] == "" {
+		return nil, nil
+	}
+
+	prompts := strings.Split(queryPrompt[0], " ")
+	seenPrompts := map[string]bool{}
+	recognizedPrompts := make([]string, 0, len(prompts))
+	for _, prompt := range prompts {
+		// According to OIDC Core §3.1.2.1, If an OP receives a prompt value outside the set
+		// defined above that it does not understand, it MAY return an error or it MAY ignore it; in
+		// practice, not returning errors for not-understood values will help facilitate phasing in
+		// extensions using new prompt values.
+		if slices.Contains(allowedPrompts, prompt) && !seenPrompts[prompt] {
+			seenPrompts[prompt] = true
+			recognizedPrompts = append(recognizedPrompts, prompt)
+		}
+	}
+
+	// According to OIDC Core §3.1.2.1, if none is present, no other prompt values may be present.
+	if slices.Contains(recognizedPrompts, "none") && len(recognizedPrompts) > 1 {
+		return nil, &authorizeError{
+			code:        "invalid_request",
+			description: "none prompt cannot be combined with other prompt values",
+		}
+	}
+
+	// This IDP does not support multiple sessions, so select_account is not supported.
+	if slices.Contains(recognizedPrompts, "select_account") {
+		return nil, &authorizeError{
+			code:        "account_selection_required",
+			description: "select_account prompt was requested but multiple sessions are not supported",
+		}
+	}
+
+	return recognizedPrompts, nil
+}
+
+func parseMaxAge(query url.Values) (time.Duration, bool, error) {
+	// According to OIDC Core §3.1.2.1, max_age is an optional integer value that specifies the
+	// maximum allowed elapsed time in seconds since the last time the End-User was actively
+	// authenticated by the OP.
+	queryMaxAge, ok := query["max_age"]
+	if !ok {
+		return 0, false, nil
+	}
+	if len(queryMaxAge) != 1 {
+		return 0, false, &authorizeError{
+			code:        "invalid_request",
+			description: "duplicate max_age parameter",
+		}
+	}
+	if queryMaxAge[0] == "" {
+		return 0, false, nil
+	}
+
+	maxAge, err := strconv.Atoi(queryMaxAge[0])
+	if err != nil {
+		return 0, false, &authorizeError{
+			code:        "invalid_request",
+			description: "invalid max_age parameter",
+		}
+	}
+
+	if maxAge < 0 {
+		return 0, false, &authorizeError{
+			code:        "invalid_request",
+			description: "max_age must be a non-negative integer",
+		}
+	}
+
+	if maxAge > math.MaxInt64/int(time.Second) {
+		return 0, false, &authorizeError{
+			code:        "invalid_request",
+			description: "max_age is too large",
+		}
+	}
+
+	return time.Duration(maxAge) * time.Second, true, nil
+}
+
 func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	query, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
@@ -318,7 +418,7 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = parseAndValidateScope(query, c)
+	scopes, err := parseAndValidateScope(query, c)
 	if err != nil {
 		s.redirectWithError(w, r, redirectURI, state, err)
 		return
@@ -330,11 +430,36 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = parseNonce(query)
-	if err != nil {
-		s.redirectWithError(w, r, redirectURI, state, err)
-		return
+	var nonce string
+	var prompts []string
+	var maxAge time.Duration
+	var maxAgeRequired bool
+	// Additional OIDC only parameters should only be honored if the request is OIDC
+	if slices.Contains(scopes, "openid") {
+		nonce, err = parseNonce(query)
+		if err != nil {
+			s.redirectWithError(w, r, redirectURI, state, err)
+			return
+		}
+
+		prompts, err = parsePrompt(query)
+		if err != nil {
+			s.redirectWithError(w, r, redirectURI, state, err)
+			return
+		}
+
+		maxAge, maxAgeRequired, err = parseMaxAge(query)
+		if err != nil {
+			s.redirectWithError(w, r, redirectURI, state, err)
+			return
+		}
 	}
+
+	// TODO: Remove this:
+	_ = nonce
+	_ = prompts
+	_ = maxAge
+	_ = maxAgeRequired
 
 	// TODO: Check here if the user is authenticated
 
